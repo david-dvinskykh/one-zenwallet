@@ -1,0 +1,225 @@
+.goals-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.goals-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.goals-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.goals-wallet-name {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin: 0.2rem 0 0;
+}
+
+.goals-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.goals-summary {
+  margin-top: 1rem;
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.goals-summary-total .label {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.2rem;
+}
+
+.goals-summary-total .amount {
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.goals-filters {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.filter-btn {
+  background: var(--bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-btn:hover {
+  color: var(--text);
+}
+
+.filter-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.goals-loading {
+  text-align: center;
+  padding: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.goals-list {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.goals-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+/* Goal Card */
+.goal-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.goal-card:hover {
+  border-color: var(--text-secondary);
+}
+
+.goal-card.funded {
+  border-left: 3px solid #22c55e;
+}
+
+.goal-card.overspent {
+  border-left: 3px solid #ef4444;
+}
+
+.goal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.95rem;
+}
+
+.goal-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.goal-title {
+  font-weight: 600;
+}
+
+.goal-tx-count {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.goal-amount-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.goal-amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-chevron {
+  transition: transform 0.2s;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.goal-chevron.open {
+  transform: rotate(180deg);
+}
+
+.positive {
+  color: #22c55e;
+}
+
+.negative {
+  color: #ef4444;
+}
+
+/* Transactions list */
+.goal-transactions {
+  border-top: 1px solid var(--border-color);
+  padding: 0.5rem 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.goal-tx {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+}
+
+.goal-tx-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.goal-tx-type {
+  font-weight: 500;
+}
+
+.goal-tx-date {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.goal-tx-comment {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.goal-tx-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
