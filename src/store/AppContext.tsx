@@ -43,16 +43,6 @@ export function useApp(): AppState {
   return ctx;
 }
 
-function loadCachedData(): ZenData | null {
-  const raw = storage.getCachedData();
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as ZenData;
-  } catch {
-    return null;
-  }
-}
-
 function mergeData(existing: ZenData | null, diff: Partial<ZenData> & { serverTimestamp: number }): ZenData {
   const base: ZenData = existing ?? {
     accounts: [],
@@ -88,9 +78,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedWalletId, setSelectedWalletId] = useState<string | null>(
     storage.getSelectedWallet
   );
-  const [data, setData] = useState<ZenData | null>(loadCachedData);
+  const [data, setData] = useState<ZenData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cacheLoaded, setCacheLoaded] = useState(false);
+
+  // Load cached data from IndexedDB on mount
+  useEffect(() => {
+    storage.getCachedData<ZenData>().then((cached) => {
+      if (cached) setData(cached);
+      setCacheLoaded(true);
+    });
+  }, []);
 
   const fetchData = useCallback(
     async (tok: string, timestamp: number = 0) => {
@@ -106,7 +105,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             instruments: diff.instrument,
             serverTimestamp: diff.serverTimestamp,
           });
-          storage.setCachedData(JSON.stringify(merged));
+          storage.setCachedData(merged);
           storage.setServerTimestamp(diff.serverTimestamp);
           return merged;
         });
@@ -154,12 +153,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await fetchData(token, ts);
   }, [token, fetchData]);
 
-  // Auto-refresh on mount if we have a token
+  // Auto-fetch when cache is loaded and we have a token but no data
   useEffect(() => {
-    if (token && !data) {
+    if (cacheLoaded && token && !data) {
       fetchData(token, 0);
     }
-  }, [token, data, fetchData]);
+  }, [cacheLoaded, token, data, fetchData]);
 
   return (
     <AppContext.Provider
