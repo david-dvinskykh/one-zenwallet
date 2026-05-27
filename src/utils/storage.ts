@@ -1,6 +1,8 @@
 const STORAGE_KEY_TOKEN = 'zen_token';
 const STORAGE_KEY_WALLET = 'zen_selected_wallet';
 const STORAGE_KEY_TIMESTAMP = 'zen_server_timestamp';
+const STORAGE_KEY_MANUAL_GOALS = 'zen_manual_goal_assignments';
+const STORAGE_KEY_PINNED_GOALS = 'zen_pinned_goal_categories';
 
 const DB_NAME = 'zenwallet';
 const DB_VERSION = 1;
@@ -96,9 +98,52 @@ export function setServerTimestamp(ts: number): void {
   localStorage.setItem(STORAGE_KEY_TIMESTAMP, String(ts));
 }
 
+export function getManualGoalAssignments(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_MANUAL_GOALS);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+export function setManualGoalAssignments(assignments: Record<string, string>): void {
+  localStorage.setItem(STORAGE_KEY_MANUAL_GOALS, JSON.stringify(assignments));
+}
+
+export function setManualGoalAssignment(transactionId: string, tagId: string | null): void {
+  const current = getManualGoalAssignments();
+  if (tagId) {
+    current[transactionId] = tagId;
+  } else {
+    delete current[transactionId];
+  }
+  setManualGoalAssignments(current);
+}
+
+export function getPinnedGoalCategories(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PINNED_GOALS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setPinnedGoalCategories(ids: string[]): void {
+  localStorage.setItem(STORAGE_KEY_PINNED_GOALS, JSON.stringify(ids));
+}
+
 export async function clearAll(): Promise<void> {
   localStorage.removeItem(STORAGE_KEY_TOKEN);
   localStorage.removeItem(STORAGE_KEY_WALLET);
   localStorage.removeItem(STORAGE_KEY_TIMESTAMP);
+  localStorage.removeItem(STORAGE_KEY_MANUAL_GOALS);
+  localStorage.removeItem(STORAGE_KEY_PINNED_GOALS);
   await clearCachedData();
 }

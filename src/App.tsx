@@ -1,7 +1,7 @@
 import { useApp } from './store/AppContext';
 import LoginPage from './pages/LoginPage';
 import WalletSelectPage from './pages/WalletSelectPage';
-import GoalsPage from './pages/GoalsPage';
+import {GoalsPage} from './pages/GoalsPage';
 
 export default function App() {
   const { token, selectedWalletId, data } = useApp();

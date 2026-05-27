@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
   type ReactNode,
 } from 'react';
 import { fetchZenmoneyDiff } from '../api/zenmoney';
@@ -13,6 +14,8 @@ import type {
   ZenTag,
   ZenTransaction,
   ZenInstrument,
+  ZenReminder,
+  ZenUser,
 } from '../types/zenmoney';
 
 interface ZenData {
@@ -20,6 +23,18 @@ interface ZenData {
   tags: ZenTag[];
   transactions: ZenTransaction[];
   instruments: ZenInstrument[];
+  reminders: ZenReminder[];
+  serverTimestamp: number;
+  user: ZenUser | null;
+}
+
+interface DataDiff {
+  accounts?: ZenAccount[];
+  tags?: ZenTag[];
+  transactions?: ZenTransaction[];
+  instruments?: ZenInstrument[];
+  reminders?: ZenReminder[];
+  user?: ZenUser;
   serverTimestamp: number;
 }
 
@@ -43,21 +58,24 @@ export function useApp(): AppState {
   return ctx;
 }
 
-function mergeData(existing: ZenData | null, diff: Partial<ZenData> & { serverTimestamp: number }): ZenData {
+function mergeData(existing: ZenData | null, diff: DataDiff): ZenData {
   const base: ZenData = existing ?? {
     accounts: [],
     tags: [],
     transactions: [],
     instruments: [],
+    reminders: [],
     serverTimestamp: 0,
+    user: null,
   };
 
   function mergeArray<T extends { id: string | number }>(
-    existing: T[],
-    incoming: T[] | undefined
+    existing: T[] | null | undefined,
+    incoming: T[] | null | undefined
   ): T[] {
-    if (!incoming) return existing;
-    const map = new Map(existing.map((item) => [item.id, item]));
+    const base = existing ?? [];
+    if (!incoming) return base;
+    const map = new Map(base.map((item) => [item.id, item]));
     for (const item of incoming) {
       map.set(item.id, item);
     }
@@ -69,7 +87,9 @@ function mergeData(existing: ZenData | null, diff: Partial<ZenData> & { serverTi
     tags: mergeArray(base.tags, diff.tags),
     transactions: mergeArray(base.transactions, diff.transactions),
     instruments: mergeArray(base.instruments, diff.instruments),
+    reminders: mergeArray(base.reminders, diff.reminders),
     serverTimestamp: diff.serverTimestamp,
+    user: diff.user !== undefined ? diff.user : base.user,
   };
 }
 
@@ -82,18 +102,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cacheLoaded, setCacheLoaded] = useState(false);
+  const hadCachedDataRef = useRef(false);
+  const hadCachedUserRef = useRef(false);
 
   // Load cached data from IndexedDB on mount
   useEffect(() => {
     storage.getCachedData<ZenData>().then((cached) => {
-      if (cached) setData(cached);
+      if (cached) {
+        setData(cached);
+        hadCachedDataRef.current = true;
+        if (cached.user != null) hadCachedUserRef.current = true;
+      }
       setCacheLoaded(true);
     });
   }, []);
 
   const fetchData = useCallback(
-    async (tok: string, timestamp: number = 0) => {
-      setLoading(true);
+    async (tok: string, timestamp: number = 0, background = false) => {
+      if (!background) setLoading(true);
       setError(null);
       try {
         const diff = await fetchZenmoneyDiff(tok, timestamp);
@@ -103,6 +129,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             tags: diff.tag,
             transactions: diff.transaction,
             instruments: diff.instrument,
+            reminders: diff.reminder,
+            user: diff.user?.[0],
             serverTimestamp: diff.serverTimestamp,
           });
           storage.setCachedData(merged);
@@ -112,14 +140,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unknown error';
         setError(msg);
-        if (msg.includes('Invalid or expired token')) {
+        if (!background && msg.includes('Invalid or expired token')) {
           storage.clearAll();
           setToken(null);
           setSelectedWalletId(null);
           setData(null);
         }
       } finally {
-        setLoading(false);
+        if (!background) setLoading(false);
       }
     },
     []
@@ -153,12 +181,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await fetchData(token, ts);
   }, [token, fetchData]);
 
-  // Auto-fetch when cache is loaded and we have a token but no data
+  // Auto-fetch on startup once cache is loaded; incremental if cache exists with user, full otherwise.
+  // Full fetch (ts=0) when no cache or cache lacks user entity — ensures monthStartDay is populated.
+  // background=true only when cache had full data: silently merges without blocking UI.
   useEffect(() => {
-    if (cacheLoaded && token && !data) {
-      fetchData(token, 0);
+    if (cacheLoaded && token) {
+      const hasFullCache = hadCachedDataRef.current && hadCachedUserRef.current;
+      const ts = hasFullCache ? storage.getServerTimestamp() : 0;
+      fetchData(token, ts, hadCachedDataRef.current);
     }
-  }, [cacheLoaded, token, data, fetchData]);
+  }, [cacheLoaded, token, fetchData]);
 
   return (
     <AppContext.Provider

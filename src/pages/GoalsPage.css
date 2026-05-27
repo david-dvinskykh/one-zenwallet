@@ -152,6 +152,22 @@
   color: var(--text-secondary);
 }
 
+.goal-period-stats {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.goal-period-stat {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.goal-period-stat.positive {
+  color: #22c55e;
+}
+
 .goal-amount-wrap {
   display: flex;
   align-items: center;
@@ -222,4 +238,398 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.goal-feed-section {
+  margin-top: 1.25rem;
+}
+
+.goal-feed-section h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+}
+
+.goal-feed-subtitle {
+  margin: 0 0 0.7rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.bulk-suggestion {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.75rem;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 10px;
+  font-size: 0.84rem;
+  flex-wrap: wrap;
+}
+
+.bulk-suggestion-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.feed-filters {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.feed-search {
+  flex: 1;
+  min-width: 160px;
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.feed-search:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.feed-goal-select {
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  max-width: 180px;
+}
+
+.feed-clear-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.feed-clear-btn:hover {
+  color: var(--text);
+  border-color: var(--text-secondary);
+}
+
+.goal-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.goal-feed-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.goal-feed-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.goal-feed-meta {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.goal-feed-date {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.goal-feed-source {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.goal-feed-goal {
+  margin-top: 0.25rem;
+  font-size: 0.86rem;
+}
+
+.goal-feed-goal-missing {
+  color: #f59e0b;
+}
+
+.goal-feed-comment {
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.goal-feed-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  min-width: 168px;
+}
+
+.goal-feed-amount {
+  font-size: 0.88rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-feed-select-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.goal-feed-select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.26rem 0.4rem;
+  font-size: 0.78rem;
+  max-width: 170px;
+}
+
+.save-banner {
+  margin: 0.55rem 0 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+.save-ok {
+  background: rgba(34, 197, 94, 0.14);
+  color: #22c55e;
+}
+
+.save-error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+/* Batch toolbar */
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  margin-bottom: 0.6rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.batch-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.batch-select-all input[type='checkbox'] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
+.batch-goal-select {
+  flex: 1;
+  min-width: 110px;
+  max-width: 175px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.28rem 0.45rem;
+  font-size: 0.8rem;
+}
+
+/* Feed row checkbox and selected state */
+.feed-row-checkbox {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  margin-top: 3px;
+  align-self: flex-start;
+}
+
+.goal-feed-row.selected {
+  border-color: var(--primary);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+/* Goal target section */
+.goal-target-section {
+  border-top: 1px solid var(--border-color);
+  padding: 0.7rem 1rem;
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.goal-target-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.goal-target-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.goal-target-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.goal-target-input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.82rem;
+}
+
+.goal-target-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.goal-monthly-needed {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--primary);
+  align-self: flex-end;
+  padding-bottom: 0.3rem;
+}
+
+.goal-monthly-past {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.goal-monthly-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.38rem;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.goal-monthly-reached {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+@media (max-width: 540px) {
+  .goal-feed-row {
+    flex-direction: column;
+  }
+
+  .goal-feed-side {
+    width: 100%;
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .goal-feed-select-wrap {
+    align-items: flex-start;
+  }
+
+  .batch-toolbar {
+    gap: 0.4rem;
+  }
+
+  .batch-goal-select {
+    max-width: 100%;
+  }
+}
+
+.goal-feed-row.unassigned {
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.goals-add-goal {
+  margin: 0.5rem 0 1rem;
+}
+
+.add-goal-btn {
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+.add-goal-btn:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.add-goal-picker {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.add-goal-select {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+@keyframes goal-highlight-flash {
+  0%   { background: rgba(99, 179, 237, 0.3); }
+  60%  { background: rgba(99, 179, 237, 0.15); }
+  100% { background: transparent; }
+}
+
+.goal-feed-row.highlight {
+  animation: goal-highlight-flash 1.6s ease-out forwards;
+}
+
+.goal-tx-clickable {
+  cursor: pointer;
+}
+
+.goal-tx-clickable:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
 }

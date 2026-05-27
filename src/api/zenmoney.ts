@@ -2,9 +2,9 @@ import type { ZenDiffResponse } from '../types/zenmoney';
 
 const ZEN_API_URL = 'https://api.zenmoney.ru/v8/diff';
 
-export async function fetchZenmoneyDiff(
+async function callZenmoneyDiff(
   token: string,
-  serverTimestamp: number = 0
+  payload: Record<string, unknown>
 ): Promise<ZenDiffResponse> {
   const response = await fetch(ZEN_API_URL, {
     method: 'POST',
@@ -12,10 +12,7 @@ export async function fetchZenmoneyDiff(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({
-      currentClientTimestamp: Math.floor(Date.now() / 1000),
-      serverTimestamp,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -26,4 +23,26 @@ export async function fetchZenmoneyDiff(
   }
 
   return response.json();
+}
+
+export async function fetchZenmoneyDiff(
+  token: string,
+  serverTimestamp: number = 0
+): Promise<ZenDiffResponse> {
+  return callZenmoneyDiff(token, {
+    currentClientTimestamp: Math.floor(Date.now() / 1000),
+    serverTimestamp,
+  });
+}
+
+export async function pushZenmoneyDiff(
+  token: string,
+  serverTimestamp: number,
+  patch: Record<string, unknown>
+): Promise<ZenDiffResponse> {
+  return callZenmoneyDiff(token, {
+    currentClientTimestamp: Math.floor(Date.now() / 1000),
+    serverTimestamp,
+    ...patch,
+  });
 }

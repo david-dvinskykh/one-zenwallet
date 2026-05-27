@@ -2,9 +2,26 @@ export interface ZenAccount {
   id: string;
   title: string;
   type: string;
-  balance: number;
+  role: number | null;
+  private: boolean;
+  savings: boolean;
+  company: number | null;
   instrument: number;
+  syncID: string[] | null;
+  balance: number;
+  startBalance: number;
+  startDate: string | null;
+  creditLimit: number;
+  inBalance: boolean;
+  enableCorrection: boolean;
+  enableSMS: boolean;
   archive: boolean;
+  capitalization: boolean | null;
+  percent: number | null;
+  endDateOffset: number | null;
+  endDateOffsetInterval: string | null;
+  payoffStep: number | null;
+  payoffInterval: string | null;
   user: number;
 }
 
@@ -13,6 +30,9 @@ export interface ZenTag {
   title: string;
   parent: string | null;
   icon: string | null;
+  picture: string | null;
+  color: number | null;
+  staticId: string | null;
   budgetIncome: boolean;
   budgetOutcome: boolean;
   required: boolean | null;
@@ -27,16 +47,26 @@ export interface ZenTransaction {
   income: number;
   incomeAccount: string;
   incomeInstrument: number;
+  incomeBankID: number | null;
   outcome: number;
   outcomeAccount: string;
   outcomeInstrument: number;
+  outcomeBankID: number | null;
   tag: string[] | null;
-  comment: string | null;
+  merchant: string | null;
   payee: string | null;
+  originalPayee: string | null;
+  comment: string | null;
+  hold: boolean | null;
+  qrCode: string | null;
+  mcc: number | null;
+  reminderMarker: string | null;
   opIncome: number | null;
   opOutcome: number | null;
   opIncomeInstrument: number | null;
   opOutcomeInstrument: number | null;
+  latitude: number | null;
+  longitude: number | null;
   created: number;
   changed: number;
   user: number;
@@ -51,13 +81,48 @@ export interface ZenInstrument {
   rate: number;
 }
 
+export interface ZenReminder {
+  id: string;
+  incomeAccount: string;
+  outcomeAccount: string;
+  income: number;
+  incomeInstrument: number;
+  outcome: number;
+  outcomeInstrument: number;
+  tag: string[] | null;
+  merchant: string | null;
+  comment: string | null;
+  payee: string | null;
+  interval: string | null;
+  step: number | null;
+  points: number[] | null;
+  startDate: string;
+  endDate: string | null;
+  notify: boolean;
+  changed: number;
+  user: number;
+  deleted?: boolean;
+}
+
+export interface ZenUser {
+  id: number;
+  login: string;
+  monthStartDay: number;
+}
+
+export interface GoalTarget {
+  amount: number;
+  date: string; // YYYY-MM-DD target end date
+}
+
 export interface ZenDiffResponse {
   serverTimestamp: number;
   instrument?: ZenInstrument[];
   account?: ZenAccount[];
   tag?: ZenTag[];
   transaction?: ZenTransaction[];
-  user?: Array<{ id: number; login: string }>;
+  reminder?: ZenReminder[];
+  user?: ZenUser[];
 }
 
 export interface Goal {
@@ -73,4 +138,22 @@ export interface GoalTransaction {
   amount: number;
   type: 'spending' | 'income' | 'transfer_in';
   comment: string | null;
+}
+
+export interface GoalFeedItem {
+  id: string;
+  date: string;
+  amount: number;
+  direction: 'income' | 'spending';
+  transactionId: string;
+  goalId: string | null;
+  goalTitle: string | null;
+  comment: string | null;
+  source: 'tag' | 'transfer_comment' | 'linked_account' | 'manual' | 'unassigned';
+  isTransfer: boolean;
+}
+
+export interface GoalsComputationResult {
+  goals: Goal[];
+  feed: GoalFeedItem[];
 }
