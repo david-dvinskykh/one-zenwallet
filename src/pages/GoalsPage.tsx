@@ -788,9 +788,10 @@ function GoalFeedRow({
 function buildHierarchicalOptions(
   tags: Array<{ id: string; title: string; parent?: string | null }>
 ): Array<{ id: string; label: string }> {
+  const tagIds = new Set(tags.map((t) => t.id));
   const byParent = new Map<string | null, typeof tags>();
   for (const tag of tags) {
-    const key = tag.parent ?? null;
+    const key = tag.parent && tagIds.has(tag.parent) ? tag.parent : null;
     if (!byParent.has(key)) byParent.set(key, []);
     byParent.get(key)!.push(tag);
   }
