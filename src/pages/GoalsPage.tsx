@@ -89,14 +89,18 @@ export function GoalsPage() {
     if (feedSearch.trim()) {
       const query = feedSearch.trim().toLowerCase();
       result = result.filter((item) => {
-        const amountStr = Math.abs(item.amount).toLocaleString(undefined, {
+        const abs = Math.abs(item.amount);
+        const amountLocale = abs.toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         });
+        const amountRaw = abs.toFixed(2);
         return (
             item.goalTitle?.toLowerCase().includes(query) ||
             item.comment?.toLowerCase().includes(query) ||
-            amountStr.includes(query)
+            item.date.includes(query) ||
+            amountLocale.includes(query) ||
+            amountRaw.includes(query)
         );
       });
     }
@@ -114,15 +118,24 @@ export function GoalsPage() {
       [filteredGoals]
   );
 
-  const goalTags = useMemo(
-      () => goals.map((g) => ({id: g.categoryId, title: g.categoryTitle})),
-      [goals]
+  const tagMap = useMemo(
+      () => new Map((data?.tags ?? []).map((t) => [t.id, t])),
+      [data?.tags]
   );
+
+  const goalTags = useMemo(
+      () => goals.map((g) => ({id: g.categoryId, title: g.categoryTitle, parent: tagMap.get(g.categoryId)?.parent ?? null})),
+      [goals, tagMap]
+  );
+
+  const sortedGoalOptions = useMemo(() => buildHierarchicalOptions(goalTags), [goalTags]);
 
   const availableTagsForGoal = useMemo(() => {
     const goalIds = new Set(goals.map((g) => g.categoryId));
     return (data?.tags ?? []).filter((t) => !goalIds.has(t.id));
   }, [goals, data?.tags]);
+
+  const sortedAvailableTagOptions = useMemo(() => buildHierarchicalOptions(availableTagsForGoal), [availableTagsForGoal]);
 
   const unassignedCount = useMemo(
       () => feed.filter((i) => i.goalId === null).length,
@@ -378,6 +391,16 @@ export function GoalsPage() {
       });
       await refresh();
       setPendingCategoryChanges({});
+
+      const emptyPinnedIds = goals
+        .filter((g) => g.transactions.length === 0 && pinnedGoalCategories.includes(g.categoryId))
+        .map((g) => g.categoryId);
+      if (emptyPinnedIds.length > 0) {
+        const updated = pinnedGoalCategories.filter((id) => !emptyPinnedIds.includes(id));
+        setPinnedGoalCategoriesState(updated);
+        setPinnedGoalCategories(updated);
+      }
+
       setSaveState('saved');
     } catch (e) {
       setSaveState('error');
@@ -499,8 +522,8 @@ export function GoalsPage() {
                     onChange={(e) => setAddGoalTagId(e.target.value)}
                 >
                   <option value="">Select category…</option>
-                  {availableTagsForGoal.map((t) => (
-                      <option key={t.id} value={t.id}>{t.title}</option>
+                  {sortedAvailableTagOptions.map((t) => (
+                      <option key={t.id} value={t.id}>{t.label}</option>
                   ))}
                 </select>
                 <button className="btn-text" onClick={() => handleAddGoalCategory(addGoalTagId)}
@@ -559,10 +582,8 @@ export function GoalsPage() {
             >
               <option value="">All goals</option>
               <option value="__unassigned__">Not assigned</option>
-              {goals.map((g) => (
-                  <option key={g.categoryId} value={g.categoryId}>
-                    {g.categoryTitle}
-                  </option>
+              {sortedGoalOptions.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
               ))}
             </select>
             <button
@@ -605,10 +626,8 @@ export function GoalsPage() {
             >
               <option value="">Pick goal…</option>
               <option value="__clear__">— Clear goal —</option>
-              {goals.map((g) => (
-                  <option key={g.categoryId} value={g.categoryId}>
-                    {g.categoryTitle}
-                  </option>
+              {sortedGoalOptions.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
               ))}
             </select>
             <button
@@ -635,7 +654,7 @@ export function GoalsPage() {
                     <GoalFeedRow
                         key={item.id}
                         item={item}
-                        tags={goalTags}
+                        tags={sortedGoalOptions}
                         currency={currency}
                         manualTagId={manualAssignments[item.transactionId] ?? ''}
                         onManualChange={handleManualGoalChange}
@@ -672,7 +691,7 @@ function GoalFeedRow({
   highlighted,
 }: {
   item: GoalFeedItem;
-  tags: Array<{ id: string; title: string }>;
+  tags: Array<{ id: string; label: string }>;
   currency: string;
   manualTagId: string;
   onManualChange: (transactionId: string, tagId: string) => void;
@@ -688,19 +707,24 @@ function GoalFeedRow({
       maximumFractionDigits: 2,
     })} ${currency}`;
 
+  const handleRowClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'SELECT' || target.tagName === 'OPTION' || target.tagName === 'INPUT') return;
+    onToggleSelect(item.transactionId);
+  };
+
   return (
     <div
       id={`feed-row-${item.transactionId}`}
       className={`goal-feed-row${selected ? ' selected' : ''}${item.source === 'unassigned' ? ' unassigned' : ''}${highlighted ? ' highlight' : ''}`}
+      onClick={handleRowClick}
     >
-      {(
-        <input
-          type="checkbox"
-          className="feed-row-checkbox"
-          checked={selected}
-          onChange={() => onToggleSelect(item.transactionId)}
-        />
-      )}
+      <input
+        type="checkbox"
+        className="feed-row-checkbox"
+        checked={selected}
+        onChange={() => onToggleSelect(item.transactionId)}
+      />
       <div className="goal-feed-main">
         <div className="goal-feed-meta">
           <span className="goal-feed-date">{item.date}</span>
@@ -733,7 +757,7 @@ function GoalFeedRow({
               <option value="">Unassigned</option>
               {tags.map((tag) => (
                 <option key={tag.id} value={tag.id}>
-                  {tag.title}
+                  {tag.label}
                 </option>
               ))}
             </select>
@@ -750,7 +774,7 @@ function GoalFeedRow({
               <option value="">No category</option>
               {tags.map((tag) => (
                 <option key={tag.id} value={tag.id}>
-                  {tag.title}
+                  {tag.label}
                 </option>
               ))}
             </select>
@@ -761,12 +785,65 @@ function GoalFeedRow({
   );
 }
 
+function buildHierarchicalOptions(
+  tags: Array<{ id: string; title: string; parent?: string | null }>
+): Array<{ id: string; label: string }> {
+  const byParent = new Map<string | null, typeof tags>();
+  for (const tag of tags) {
+    const key = tag.parent ?? null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(tag);
+  }
+  for (const arr of byParent.values()) {
+    arr.sort((a, b) => a.title.localeCompare(b.title));
+  }
+  const result: Array<{ id: string; label: string }> = [];
+  function walk(parentId: string | null, depth: number) {
+    for (const tag of byParent.get(parentId) ?? []) {
+      result.push({ id: tag.id, label: ' '.repeat(depth * 3) + tag.title });
+      walk(tag.id, depth + 1);
+    }
+  }
+  walk(null, 0);
+  return result;
+}
+
 function computeMonthlyNeeded(
   currentAmount: number,
-  targetAmount: number,
-  targetDate: string,
+  target: GoalTarget,
   periodStart: string
 ): number | null {
+  const type = target.type ?? 'one_time';
+
+  if (type === 'fixed_monthly') {
+    return target.amount > 0 ? target.amount : null;
+  }
+
+  if (type === 'recurring') {
+    const targetDate = target.date ?? '';
+    if (!targetDate || !periodStart) return null;
+    const tp = targetDate.split('-');
+    const sp = periodStart.split('-');
+    if (tp.length < 2 || sp.length < 2) return null;
+    const startYear = parseInt(sp[0], 10);
+    const startMonth = parseInt(sp[1], 10);
+    const startDay = sp.length >= 3 ? parseInt(sp[2], 10) : 1;
+    const targetDay = tp.length >= 3 ? parseInt(tp[2], 10) : 1;
+    let adjTargetYear = parseInt(tp[0], 10);
+    let adjTargetMonth = parseInt(tp[1], 10);
+    if (targetDay < startDay) {
+      adjTargetMonth -= 1;
+      if (adjTargetMonth === 0) { adjTargetMonth = 12; adjTargetYear -= 1; }
+    }
+    const monthsLeft = (adjTargetYear - startYear) * 12 + (adjTargetMonth - startMonth) + 1;
+    if (monthsLeft <= 0) return null;
+    const remaining = target.amount - currentAmount;
+    if (remaining <= 0) return 0;
+    return remaining / monthsLeft;
+  }
+
+  // one_time
+  const targetDate = target.date ?? '';
   if (!targetDate || !periodStart) return null;
   const tp = targetDate.split('-');
   const sp = periodStart.split('-');
@@ -787,7 +864,7 @@ function computeMonthlyNeeded(
   const monthsLeft = (adjTargetYear - startYear) * 12 + (adjTargetMonth - startMonth) + 1;
   if (monthsLeft <= 0) return null;
 
-  const remaining = targetAmount - currentAmount;
+  const remaining = target.amount - currentAmount;
   if (remaining <= 0) return 0;
 
   return remaining / monthsLeft;
@@ -824,31 +901,48 @@ function GoalCard({
     }
   };
 
-  const monthlyNeeded = target?.date
-    ? computeMonthlyNeeded(goal.amount, target.amount, target.date, currentPeriodStart)
-    : null;
+  const targetType = target?.type ?? 'one_time';
+
+  const monthlyNeeded = target ? computeMonthlyNeeded(goal.amount, target, currentPeriodStart) : null;
 
   const thisMonthAdded = goal.transactions
     .filter((tx) => tx.amount > 0 && tx.date >= currentPeriodStart)
     .reduce((sum, tx) => sum + tx.amount, 0);
 
-  const leftAmount = target ? Math.max(0, target.amount - goal.amount) : null;
+  const leftAmount = target && targetType === 'one_time' ? Math.max(0, target.amount - goal.amount) : null;
+
+  const updateTarget = (patch: Partial<GoalTarget>) => {
+    const base = target ?? { type: 'one_time' as const, amount: 0 };
+    onTargetChange(goal.categoryId, { ...base, ...patch });
+  };
+
+  const handleTypeChange = (type: string) => {
+    const t = type as GoalTarget['type'];
+    onTargetChange(goal.categoryId, { ...(target ?? { amount: 0 }), type: t });
+  };
 
   const handleAmountChange = (raw: string) => {
     const amount = parseFloat(raw);
     if (!raw.trim() || isNaN(amount)) {
-      onTargetChange(goal.categoryId, target?.date ? { amount: 0, date: target.date } : null);
+      if (!target?.date && !target?.repeatEvery) { onTargetChange(goal.categoryId, null); return; }
+      updateTarget({ amount: 0 });
     } else {
-      onTargetChange(goal.categoryId, { amount, date: target?.date ?? '' });
+      updateTarget({ amount });
     }
   };
 
   const handleDateChange = (date: string) => {
-    if (!date && !target?.amount) {
-      onTargetChange(goal.categoryId, null);
-    } else {
-      onTargetChange(goal.categoryId, { amount: target?.amount ?? 0, date });
-    }
+    if (!date && !target?.amount) { onTargetChange(goal.categoryId, null); return; }
+    updateTarget({ date: date || undefined });
+  };
+
+  const handleRepeatEveryChange = (raw: string) => {
+    const n = parseInt(raw, 10);
+    updateTarget({ repeatEvery: isNaN(n) || n <= 0 ? undefined : n });
+  };
+
+  const handleRepeatUnitChange = (unit: string) => {
+    updateTarget({ repeatUnit: unit as 'days' | 'months' });
   };
 
   return (
@@ -894,9 +988,22 @@ function GoalCard({
       {expanded && (
         <>
           <div className="goal-target-section">
+            <div className="goal-target-type-row">
+              {(['one_time', 'recurring', 'fixed_monthly'] as const).map((t) => (
+                <button
+                  key={t}
+                  className={`goal-target-type-btn${targetType === t ? ' active' : ''}`}
+                  onClick={() => handleTypeChange(t)}
+                >
+                  {t === 'one_time' ? 'Save by date' : t === 'recurring' ? 'Recurring' : 'Fixed monthly'}
+                </button>
+              ))}
+            </div>
             <div className="goal-target-row">
               <label className="goal-target-field">
-                <span className="goal-target-label">Target</span>
+                <span className="goal-target-label">
+                  {targetType === 'fixed_monthly' ? 'Amount/mo' : 'Amount'}
+                </span>
                 <input
                   type="number"
                   className="goal-target-input"
@@ -905,23 +1012,60 @@ function GoalCard({
                   onChange={(e) => handleAmountChange(e.target.value)}
                 />
               </label>
-              <label className="goal-target-field">
-                <span className="goal-target-label">By date</span>
-                <input
-                  type="date"
-                  className="goal-target-input"
-                  value={target?.date ?? ''}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                />
-              </label>
+              {targetType === 'one_time' && (
+                <label className="goal-target-field">
+                  <span className="goal-target-label">By date</span>
+                  <input
+                    type="date"
+                    className="goal-target-input"
+                    value={target?.date ?? ''}
+                    onChange={(e) => handleDateChange(e.target.value)}
+                  />
+                </label>
+              )}
+              {targetType === 'recurring' && (
+                <>
+                  <label className="goal-target-field">
+                    <span className="goal-target-label">Every</span>
+                    <input
+                      type="number"
+                      className="goal-target-input goal-target-input-sm"
+                      placeholder="1"
+                      min="1"
+                      value={target?.repeatEvery ?? ''}
+                      onChange={(e) => handleRepeatEveryChange(e.target.value)}
+                    />
+                  </label>
+                  <label className="goal-target-field">
+                    <span className="goal-target-label">Unit</span>
+                    <select
+                      className="goal-target-input"
+                      value={target?.repeatUnit ?? 'months'}
+                      onChange={(e) => handleRepeatUnitChange(e.target.value)}
+                    >
+                      <option value="months">months</option>
+                      <option value="days">days</option>
+                    </select>
+                  </label>
+                  <label className="goal-target-field">
+                    <span className="goal-target-label">Next due</span>
+                    <input
+                      type="date"
+                      className="goal-target-input"
+                      value={target?.date ?? ''}
+                      onChange={(e) => handleDateChange(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
               {monthlyNeeded !== null && (
                 <div className="goal-monthly-needed">
                   {monthlyNeeded === 0
                     ? 'Target reached!'
-                    : `~${monthlyNeeded.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${currency}/mo needed`}
+                    : `~${monthlyNeeded.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${currency}/mo`}
                 </div>
               )}
-              {monthlyNeeded === null && target?.date && (
+              {monthlyNeeded === null && targetType === 'one_time' && target?.date && (
                 <div className="goal-monthly-needed goal-monthly-past">Target date passed</div>
               )}
             </div>

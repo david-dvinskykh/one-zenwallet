@@ -26,6 +26,8 @@
   gap: 0.5rem;
   align-items: center;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .goals-summary {
@@ -386,7 +388,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 0.35rem;
-  min-width: 168px;
+  min-width: 0;
 }
 
 .goal-feed-amount {
@@ -495,6 +497,34 @@
   background: rgba(0, 0, 0, 0.015);
 }
 
+.goal-target-type-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.goal-target-type-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.goal-target-type-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.goal-target-input-sm {
+  width: 4rem;
+}
+
 .goal-target-row {
   display: flex;
   align-items: flex-end;
@@ -572,12 +602,39 @@
     align-items: flex-start;
   }
 
+  .goal-feed-select {
+    max-width: 100%;
+  }
+
   .batch-toolbar {
     gap: 0.4rem;
   }
 
   .batch-goal-select {
     max-width: 100%;
+  }
+
+  .goals-header-top {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .goals-header-actions {
+    width: 100%;
+  }
+
+  .goals-filters {
+    flex-wrap: wrap;
+  }
+
+  .feed-goal-select {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .goals-summary {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

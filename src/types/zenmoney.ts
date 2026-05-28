@@ -110,9 +110,14 @@ export interface ZenUser {
   monthStartDay: number;
 }
 
+export type GoalTargetType = 'one_time' | 'recurring' | 'fixed_monthly';
+
 export interface GoalTarget {
+  type?: GoalTargetType; // defaults to 'one_time' for backward compat
   amount: number;
-  date: string; // YYYY-MM-DD target end date
+  date?: string; // YYYY-MM-DD, used by one_time and recurring
+  repeatEvery?: number; // recurring: interval count
+  repeatUnit?: 'days' | 'months'; // recurring: interval unit
 }
 
 export interface ZenDiffResponse {
