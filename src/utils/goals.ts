@@ -85,6 +85,13 @@ export function computeGoals(
     isTransfer: boolean
   ): void {
     const goalTitle = goalId ? tagMap.get(goalId)?.title ?? 'Unknown' : null;
+    let payee: string | null = null;
+    if (isTransfer) {
+      const counterpartId = tx.incomeAccount === selectedWalletId ? tx.outcomeAccount : tx.incomeAccount;
+      payee = accountMap.get(counterpartId)?.title ?? null;
+    } else {
+      payee = tx.merchant ?? tx.payee;
+    }
     feed.push({
       id: `${tx.id}:${goalId ?? 'none'}:${source}:${feed.length}`,
       date: tx.date,
@@ -94,6 +101,7 @@ export function computeGoals(
       goalId,
       goalTitle,
       comment,
+      payee,
       source,
       isTransfer,
     });

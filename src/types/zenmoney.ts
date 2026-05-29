@@ -154,6 +154,7 @@ export interface GoalFeedItem {
   goalId: string | null;
   goalTitle: string | null;
   comment: string | null;
+  payee: string | null;
   source: 'tag' | 'transfer_comment' | 'linked_account' | 'manual' | 'unassigned';
   isTransfer: boolean;
 }
