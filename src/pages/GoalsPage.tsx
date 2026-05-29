@@ -103,6 +103,24 @@ export function GoalsPage() {
     return map;
   }, [data]);
 
+  const suggestedReminderMap = useMemo(() => {
+    if (!data) return new Map<string, ZenReminder>();
+    const map = new Map<string, ZenReminder>();
+    for (const goal of goals) {
+      if (goalReminderMap.has(goal.categoryId)) continue;
+      const markerCounts = new Map<string, number>();
+      for (const tx of goal.transactions) {
+        const marker = transactionMap.get(tx.id)?.reminderMarker;
+        if (marker) markerCounts.set(marker, (markerCounts.get(marker) ?? 0) + 1);
+      }
+      if (!markerCounts.size) continue;
+      const topMarker = [...markerCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const reminder = data.reminders.find((r) => r.id === topMarker && !r.deleted);
+      if (reminder) map.set(goal.categoryId, reminder);
+    }
+    return map;
+  }, [data, goals, goalReminderMap, transactionMap]);
+
   const handleCreateReminder = async (categoryId: string, config: GoalReminderConfig) => {
     if (!token || !data || !selectedWalletId) return;
     const walletAccount = data.accounts.find((a) => a.id === selectedWalletId);
@@ -159,6 +177,18 @@ export function GoalsPage() {
     if (!reminder) return;
     await pushZenmoneyDiff(token, data.serverTimestamp, {
       reminder: [{ ...reminder, deleted: true, changed: now }],
+    });
+    await refresh();
+  };
+
+  const handleLinkReminder = async (reminderId: string, categoryId: string) => {
+    if (!token || !data) return;
+    const reminder = data.reminders.find((r) => r.id === reminderId);
+    if (!reminder) return;
+    const now = Math.floor(Date.now() / 1000);
+    const updatedTags = Array.from(new Set([...(reminder.tag ?? []), categoryId]));
+    await pushZenmoneyDiff(token, data.serverTimestamp, {
+      reminder: [{ ...reminder, tag: updatedTags, changed: now }],
     });
     await refresh();
   };
@@ -597,8 +627,10 @@ export function GoalsPage() {
                   selectedWalletId={selectedWalletId}
                   monthStartDay={monthStartDay}
                   existingReminder={goalReminderMap.get(goal.categoryId) ?? null}
+                  suggestedReminder={suggestedReminderMap.get(goal.categoryId) ?? null}
                   onCreateReminder={handleCreateReminder}
                   onDeleteReminder={handleDeleteReminder}
+                  onLinkReminder={handleLinkReminder}
               />
           ))}
         </div>
@@ -975,8 +1007,10 @@ function GoalCard({
   selectedWalletId,
   monthStartDay,
   existingReminder,
+  suggestedReminder,
   onCreateReminder,
   onDeleteReminder,
+  onLinkReminder,
 }: {
   goal: Goal;
   currency: string;
@@ -990,8 +1024,10 @@ function GoalCard({
   selectedWalletId: string;
   monthStartDay: number;
   existingReminder: ZenReminder | null;
+  suggestedReminder: ZenReminder | null;
   onCreateReminder: (categoryId: string, config: GoalReminderConfig) => Promise<void>;
   onDeleteReminder: (reminderId: string) => Promise<void>;
+  onLinkReminder: (reminderId: string, categoryId: string) => Promise<void>;
 }) {
   const [reminderType, setReminderType] = useState<'transfer' | 'income'>('transfer');
   const [reminderSourceId, setReminderSourceId] = useState('');
@@ -1209,6 +1245,24 @@ function GoalCard({
               </div>
             ) : (
               <div className="goal-reminder-form">
+                {suggestedReminder && (
+                  <div className="goal-reminder-suggestion">
+                    <span>
+                      {suggestedReminder.incomeAccount === suggestedReminder.outcomeAccount ? '➕' : '🔄'}{' '}
+                      Reminder found (day {suggestedReminder.points?.[0]} · {suggestedReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo)
+                    </span>
+                    <button
+                      className="btn-text"
+                      disabled={reminderLoading}
+                      onClick={async () => {
+                        setReminderLoading(true);
+                        try { await onLinkReminder(suggestedReminder.id, goal.categoryId); } finally { setReminderLoading(false); }
+                      }}
+                    >
+                      {reminderLoading ? 'Linking…' : 'Link'}
+                    </button>
+                  </div>
+                )}
                 <div className="goal-reminder-row">
                   <label className="goal-target-field">
                     <span className="goal-target-label">Type</span>

@@ -763,6 +763,18 @@
   background: rgba(252, 129, 129, 0.12);
 }
 
+.goal-reminder-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(99, 179, 237, 0.12);
+  border-radius: 6px;
+  font-size: 0.83rem;
+  color: var(--text-primary);
+}
+
 .goal-reminder-form {
   display: flex;
   flex-direction: column;
