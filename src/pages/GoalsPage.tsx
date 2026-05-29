@@ -1280,10 +1280,13 @@ function GoalCard({
           </div>
 
           <div className="goal-transactions">
-            {goal.transactions
-              .slice()
-              .reverse()
-              .map((tx) => (
+            {(() => {
+              const txs = goal.transactions;
+              let running = 0;
+              const balances = txs.map((tx) => { running += tx.amount; return running; });
+              const reversedTxs = txs.slice().reverse();
+              const reversedBalances = balances.slice().reverse();
+              return reversedTxs.map((tx, i) => (
                 <div
                   key={tx.id}
                   className={`goal-tx${onTransactionClick ? ' goal-tx-clickable' : ''}`}
@@ -1296,11 +1299,15 @@ function GoalCard({
                       <span className="goal-tx-comment">{tx.comment}</span>
                     )}
                   </div>
-                  <span className={`goal-tx-amount ${tx.amount >= 0 ? 'positive' : 'negative'}`}>
-                    {formatAmount(tx.amount)}
-                  </span>
+                  <div className="goal-tx-right">
+                    <span className={`goal-tx-amount ${tx.amount >= 0 ? 'positive' : 'negative'}`}>
+                      {formatAmount(tx.amount)}
+                    </span>
+                    <span className="goal-tx-balance">{formatAmount(reversedBalances[i])}</span>
+                  </div>
                 </div>
-              ))}
+              ));
+            })()}
           </div>
         </>
       )}
