@@ -11,8 +11,10 @@ import {
   getDataAccount,
   parseManualAssignmentsFromReminders,
   parseGoalTargetsFromReminders,
+  parseGoalRemindersFromReminders,
 } from '../utils/hiddenData';
 import { syncHiddenDataToZenmoney } from '../utils/hiddenDataSync';
+import { syncGoalRemindersToZenmoney } from '../utils/goalRemindersSync';
 import { pushZenmoneyDiff } from '../api/zenmoney';
 import type { Goal, GoalFeedItem, GoalTarget, ZenAccount, ZenReminder, ZenTransaction } from '../types/zenmoney';
 import './GoalsPage.css';
@@ -100,6 +102,25 @@ export function GoalsPage() {
         map.set(tagId, r);
       }
     }
+    // Transfer reminders cannot carry a tag in ZenMoney, so they are linked to a
+    // goal via the goalReminders map (tagId -> reminderId), an explicit
+    // display-only association. Resolve those directly to the reminder.
+    const goalReminders = parseGoalRemindersFromReminders(data.reminders, dataAccountId ?? null);
+    for (const [tagId, reminderId] of Object.entries(goalReminders)) {
+      if (map.has(tagId)) continue;
+      const reminder = data.reminders.find((r) => r.id === reminderId && !r.deleted);
+      if (reminder) map.set(tagId, reminder);
+    }
+    return map;
+  }, [data]);
+
+  // transaction.reminderMarker references a ReminderMarker entity, not a Reminder.
+  // This map resolves markerId -> parent reminderId.
+  const markerToReminderId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of data?.reminderMarkers ?? []) {
+      map.set(m.id, m.reminder);
+    }
     return map;
   }, [data]);
 
@@ -108,18 +129,21 @@ export function GoalsPage() {
     const map = new Map<string, ZenReminder>();
     for (const goal of goals) {
       if (goalReminderMap.has(goal.categoryId)) continue;
-      const markerCounts = new Map<string, number>();
+      const reminderCounts = new Map<string, number>();
       for (const tx of goal.transactions) {
         const marker = transactionMap.get(tx.id)?.reminderMarker;
-        if (marker) markerCounts.set(marker, (markerCounts.get(marker) ?? 0) + 1);
+        if (!marker) continue;
+        const reminderId = markerToReminderId.get(marker);
+        if (!reminderId) continue;
+        reminderCounts.set(reminderId, (reminderCounts.get(reminderId) ?? 0) + 1);
       }
-      if (!markerCounts.size) continue;
-      const topMarker = [...markerCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      const reminder = data.reminders.find((r) => r.id === topMarker && !r.deleted);
+      if (!reminderCounts.size) continue;
+      const topReminderId = [...reminderCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const reminder = data.reminders.find((r) => r.id === topReminderId && !r.deleted);
       if (reminder) map.set(goal.categoryId, reminder);
     }
     return map;
-  }, [data, goals, goalReminderMap, transactionMap]);
+  }, [data, goals, goalReminderMap, transactionMap, markerToReminderId]);
 
   const handleCreateReminder = async (categoryId: string, config: GoalReminderConfig) => {
     if (!token || !data || !selectedWalletId) return;
@@ -167,11 +191,48 @@ export function GoalsPage() {
       ? [{ ...existing, deleted: true, changed: now }, newReminder]
       : [newReminder];
     await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: reminderPatch });
+
+    // The tag set above will not persist on a transfer reminder, so also record
+    // the link in the goalReminders map so the goal recognizes it.
+    if (config.type === 'transfer') {
+      const dataAccountId = getDataAccount(data.accounts)?.id ?? null;
+      const links = {
+        ...parseGoalRemindersFromReminders(data.reminders, dataAccountId),
+        [categoryId]: newReminder.id,
+      };
+      await syncGoalRemindersToZenmoney({
+        token,
+        serverTimestamp: data.serverTimestamp,
+        accounts: data.accounts,
+        reminders: data.reminders,
+        links,
+      });
+    }
     await refresh();
   };
 
   const handleDeleteReminder = async (reminderId: string) => {
     if (!token || !data) return;
+    const dataAccountId = getDataAccount(data.accounts)?.id ?? null;
+    const goalReminders = parseGoalRemindersFromReminders(data.reminders, dataAccountId);
+    const linkedTag = Object.entries(goalReminders).find(([, rid]) => rid === reminderId)?.[0];
+
+    // A transfer reminder linked for display only is not owned by us — just unlink
+    // it (remove the goalReminders entry) rather than deleting the real reminder.
+    if (linkedTag) {
+      const rest = { ...goalReminders };
+      delete rest[linkedTag];
+      await syncGoalRemindersToZenmoney({
+        token,
+        serverTimestamp: data.serverTimestamp,
+        accounts: data.accounts,
+        reminders: data.reminders,
+        links: rest,
+      });
+      await refresh();
+      return;
+    }
+
     const now = Math.floor(Date.now() / 1000);
     const reminder = data.reminders.find((r) => r.id === reminderId);
     if (!reminder) return;
@@ -181,11 +242,67 @@ export function GoalsPage() {
     await refresh();
   };
 
+  const handleUpdateReminder = async (reminderId: string, config: GoalReminderConfig) => {
+    if (!token || !data) return;
+    const reminder = data.reminders.find((r) => r.id === reminderId);
+    if (!reminder) return;
+
+    const isTransfer = config.type === 'transfer';
+    const sourceAccount = isTransfer
+      ? data.accounts.find((a) => a.id === config.sourceAccountId)
+      : null;
+    if (isTransfer && !sourceAccount) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    const today = new Date();
+    let startMonth = today.getMonth() + 1;
+    let startYear = today.getFullYear();
+    if (today.getDate() >= config.dayOfMonth) {
+      startMonth++;
+      if (startMonth > 12) { startMonth = 1; startYear++; }
+    }
+    const startDate = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(config.dayOfMonth).padStart(2, '0')}`;
+
+    const updated: ZenReminder = {
+      ...reminder,
+      income: config.amount,
+      outcome: isTransfer ? config.amount : 0,
+      outcomeAccount: isTransfer ? config.sourceAccountId : reminder.incomeAccount,
+      outcomeInstrument: isTransfer && sourceAccount ? sourceAccount.instrument : reminder.incomeInstrument,
+      points: [config.dayOfMonth],
+      startDate,
+      changed: now,
+    };
+    await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: [updated] });
+    await refresh();
+  };
+
   const handleLinkReminder = async (reminderId: string, categoryId: string) => {
     if (!token || !data) return;
     const reminder = data.reminders.find((r) => r.id === reminderId);
     if (!reminder) return;
     const now = Math.floor(Date.now() / 1000);
+
+    // ZenMoney does not allow categories/tags on transfer reminders, so linking a
+    // transfer is persisted via the goalReminders map (goal tag -> reminder id).
+    const isTransfer = reminder.incomeAccount !== reminder.outcomeAccount;
+    if (isTransfer) {
+      const dataAccountId = getDataAccount(data.accounts)?.id ?? null;
+      const links = {
+        ...parseGoalRemindersFromReminders(data.reminders, dataAccountId),
+        [categoryId]: reminder.id,
+      };
+      await syncGoalRemindersToZenmoney({
+        token,
+        serverTimestamp: data.serverTimestamp,
+        accounts: data.accounts,
+        reminders: data.reminders,
+        links,
+      });
+      await refresh();
+      return;
+    }
+
     const updatedTags = Array.from(new Set([...(reminder.tag ?? []), categoryId]));
     await pushZenmoneyDiff(token, data.serverTimestamp, {
       reminder: [{ ...reminder, tag: updatedTags, changed: now }],
@@ -338,14 +455,18 @@ export function GoalsPage() {
 
     if (nextTagId) {
       const tx = transactionMap.get(transactionId);
-      if (tx?.reminderMarker) {
-        const marker = tx.reminderMarker;
+      const marker = tx?.reminderMarker;
+      const reminderId = marker ? markerToReminderId.get(marker) : undefined;
+      if (marker && reminderId) {
+        // Group by parent reminder: each occurrence has a distinct marker,
+        // so match on the resolved reminderId, not the marker itself.
         const affectedTransactionIds = feed
             .filter((item) => {
               if (item.transactionId === transactionId) return false;
               if (item.goalId !== null) return false;
               if (manualAssignments[item.transactionId]) return false;
-              return transactionMap.get(item.transactionId)?.reminderMarker === marker;
+              const m = transactionMap.get(item.transactionId)?.reminderMarker;
+              return m ? markerToReminderId.get(m) === reminderId : false;
             })
             .map((item) => item.transactionId);
 
@@ -629,6 +750,7 @@ export function GoalsPage() {
                   existingReminder={goalReminderMap.get(goal.categoryId) ?? null}
                   suggestedReminder={suggestedReminderMap.get(goal.categoryId) ?? null}
                   onCreateReminder={handleCreateReminder}
+                  onUpdateReminder={handleUpdateReminder}
                   onDeleteReminder={handleDeleteReminder}
                   onLinkReminder={handleLinkReminder}
               />
@@ -994,6 +1116,17 @@ function computeMonthlyNeeded(
   return remaining / monthsLeft;
 }
 
+// ZenMoney monthly reminders carry the recurrence day in startDate; `points` is
+// only the day for reminders this app creates (externally-created ones may have
+// points: [0]). Prefer a valid points day, else fall back to the startDate day.
+function reminderDayOfMonth(reminder: ZenReminder): number {
+  const p = reminder.points?.[0];
+  if (typeof p === 'number' && p >= 1 && p <= 31) return p;
+  const sd = reminder.startDate?.split('-')[2];
+  const d = sd ? parseInt(sd, 10) : NaN;
+  return !isNaN(d) && d >= 1 && d <= 31 ? d : 1;
+}
+
 function GoalCard({
   goal,
   currency,
@@ -1009,6 +1142,7 @@ function GoalCard({
   existingReminder,
   suggestedReminder,
   onCreateReminder,
+  onUpdateReminder,
   onDeleteReminder,
   onLinkReminder,
 }: {
@@ -1026,6 +1160,7 @@ function GoalCard({
   existingReminder: ZenReminder | null;
   suggestedReminder: ZenReminder | null;
   onCreateReminder: (categoryId: string, config: GoalReminderConfig) => Promise<void>;
+  onUpdateReminder: (reminderId: string, config: GoalReminderConfig) => Promise<void>;
   onDeleteReminder: (reminderId: string) => Promise<void>;
   onLinkReminder: (reminderId: string, categoryId: string) => Promise<void>;
 }) {
@@ -1034,6 +1169,7 @@ function GoalCard({
   const [reminderDay, setReminderDay] = useState(monthStartDay || 1);
   const [reminderAmount, setReminderAmount] = useState(0);
   const [reminderLoading, setReminderLoading] = useState(false);
+  const [reminderEditing, setReminderEditing] = useState(false);
 
   const formatAmount = (n: number) =>
     `${n >= 0 ? '+' : ''}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
@@ -1055,7 +1191,24 @@ function GoalCard({
     .filter((tx) => tx.amount > 0 && tx.date >= currentPeriodStart)
     .reduce((sum, tx) => sum + tx.amount, 0);
 
-  const leftAmount = target && targetType === 'one_time' ? Math.max(0, target.amount - goal.amount) : null;
+  const leftAmount =
+    monthlyNeeded !== null
+      ? Math.max(0, monthlyNeeded - thisMonthAdded)
+      : target
+        ? Math.max(0, target.amount - goal.amount)
+        : null;
+
+  // Monthly contribution status: red = nothing added, yellow = partial, green = met/reached
+  const monthlyStatus =
+    monthlyNeeded === null
+      ? null
+      : monthlyNeeded === 0
+        ? 'met'
+        : thisMonthAdded <= 0
+          ? 'none'
+          : thisMonthAdded < monthlyNeeded
+            ? 'partial'
+            : 'met';
 
   const updateTarget = (patch: Partial<GoalTarget>) => {
     const base = target ?? { type: 'one_time' as const, amount: 0 };
@@ -1117,15 +1270,12 @@ function GoalCard({
           </div>
         </div>
         <div className="goal-amount-wrap">
-          {monthlyNeeded !== null && monthlyNeeded > 0 && (
-            <span className="goal-monthly-badge">
+          {monthlyNeeded !== null && (
+            <span className={`goal-monthly-badge goal-monthly-${monthlyStatus}`}>
               ~{monthlyNeeded.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo
             </span>
           )}
-          {monthlyNeeded === 0 && (
-            <span className="goal-monthly-badge goal-monthly-reached">On track</span>
-          )}
-          <span className={`goal-amount ${goal.amount >= 0 ? 'positive' : 'negative'}`}>
+          <span className={`goal-amount ${goal.amount === 0 ? 'zero' : goal.amount > 0 ? 'positive' : 'negative'}`}>
             {formatAmount(goal.amount)}
           </span>
           <span className={`goal-chevron ${expanded ? 'open' : ''}`}>▾</span>
@@ -1222,34 +1372,115 @@ function GoalCard({
               <span>📋 Monthly reminder</span>
               {existingReminder && (
                 <span className="goal-reminder-badge">
-                  Day {existingReminder.points?.[0] ?? '?'} · {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo
+                  Day {reminderDayOfMonth(existingReminder)} · {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo
                 </span>
               )}
             </div>
             {existingReminder ? (
-              <div className="goal-reminder-existing">
-                <span>
-                  {existingReminder.incomeAccount === existingReminder.outcomeAccount ? '➕ Income' : '🔄 Transfer'}
-                  {' '}on day {existingReminder.points?.[0]} — {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo
-                </span>
-                <button
-                  className="btn-text goal-reminder-delete"
-                  disabled={reminderLoading}
-                  onClick={async () => {
-                    setReminderLoading(true);
-                    try { await onDeleteReminder(existingReminder.id); } finally { setReminderLoading(false); }
-                  }}
-                >
-                  {reminderLoading ? 'Deleting…' : 'Delete'}
-                </button>
-              </div>
+              reminderEditing ? (
+                <div className="goal-reminder-form">
+                  <div className="goal-reminder-row">
+                    {reminderType === 'transfer' && (
+                      <label className="goal-target-field">
+                        <span className="goal-target-label">From account</span>
+                        <select
+                          className="goal-target-input"
+                          value={reminderSourceId}
+                          onChange={(e) => setReminderSourceId(e.target.value)}
+                        >
+                          <option value="">Select…</option>
+                          {accounts.filter((a) => a.id !== selectedWalletId && !a.archive).map((a) => (
+                            <option key={a.id} value={a.id}>{a.title}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label className="goal-target-field">
+                      <span className="goal-target-label">Day</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        className="goal-target-input goal-target-input-sm"
+                        value={reminderDay}
+                        onChange={(e) => setReminderDay(parseInt(e.target.value, 10) || 1)}
+                      />
+                    </label>
+                    <label className="goal-target-field">
+                      <span className="goal-target-label">Amount</span>
+                      <input
+                        type="number"
+                        className="goal-target-input"
+                        value={reminderAmount || ''}
+                        onChange={(e) => setReminderAmount(parseFloat(e.target.value) || 0)}
+                      />
+                    </label>
+                    <button
+                      className="btn-text"
+                      disabled={reminderLoading || reminderAmount <= 0 || (reminderType === 'transfer' && !reminderSourceId)}
+                      onClick={async () => {
+                        setReminderLoading(true);
+                        try {
+                          await onUpdateReminder(existingReminder.id, {
+                            type: reminderType,
+                            sourceAccountId: reminderSourceId,
+                            dayOfMonth: reminderDay,
+                            amount: reminderAmount,
+                          });
+                          setReminderEditing(false);
+                        } finally { setReminderLoading(false); }
+                      }}
+                    >
+                      {reminderLoading ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      className="btn-text"
+                      disabled={reminderLoading}
+                      onClick={() => setReminderEditing(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="goal-reminder-existing">
+                  <span>
+                    {existingReminder.incomeAccount === existingReminder.outcomeAccount ? '➕ Income' : '🔄 Transfer'}
+                    {' '}on day {reminderDayOfMonth(existingReminder)} — {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo
+                  </span>
+                  <button
+                    className="btn-text"
+                    disabled={reminderLoading}
+                    onClick={() => {
+                      const isTransfer = existingReminder.incomeAccount !== existingReminder.outcomeAccount;
+                      setReminderType(isTransfer ? 'transfer' : 'income');
+                      setReminderSourceId(isTransfer ? existingReminder.outcomeAccount : '');
+                      setReminderDay(reminderDayOfMonth(existingReminder));
+                      setReminderAmount(existingReminder.income || 0);
+                      setReminderEditing(true);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="btn-text goal-reminder-delete"
+                    disabled={reminderLoading}
+                    onClick={async () => {
+                      setReminderLoading(true);
+                      try { await onDeleteReminder(existingReminder.id); } finally { setReminderLoading(false); }
+                    }}
+                  >
+                    {reminderLoading ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              )
             ) : (
               <div className="goal-reminder-form">
                 {suggestedReminder && (
                   <div className="goal-reminder-suggestion">
                     <span>
                       {suggestedReminder.incomeAccount === suggestedReminder.outcomeAccount ? '➕' : '🔄'}{' '}
-                      Reminder found (day {suggestedReminder.points?.[0]} · {suggestedReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo)
+                      Reminder found (day {reminderDayOfMonth(suggestedReminder)} · {suggestedReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo)
                     </span>
                     <button
                       className="btn-text"

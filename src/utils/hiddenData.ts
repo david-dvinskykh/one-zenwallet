@@ -3,6 +3,7 @@ import type { ZenAccount, ZenReminder, GoalTarget } from '../types/zenmoney';
 export const ONE_ZENWALLET_DATA_ACCOUNT_NAME = '[One-Zenwallet Data]';
 const MANUAL_GOALS_TYPE = 'oneZenwalletManualGoals';
 const GOAL_TARGETS_TYPE = 'oneZenwalletGoalTargets';
+const GOAL_REMINDERS_TYPE = 'oneZenwalletGoalReminders';
 
 export function isDataAccountTitle(title: string): boolean {
   const normalized = title.trim().toLowerCase();
@@ -153,6 +154,81 @@ export function buildGoalTargetsComment(
   return JSON.stringify({
     type: GOAL_TARGETS_TYPE,
     payload: targets,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+// Goal reminders: maps a goal tag id -> reminder id. A display-only association
+// used so recurring transfer reminders (which ZenMoney does not allow to carry a
+// category/tag) can still be recognized as a goal's monthly reminder. It does NOT
+// affect transaction attribution.
+export function parseGoalRemindersFromReminders(
+  reminders: ZenReminder[],
+  dataAccountId: string | null
+): Record<string, string> {
+  if (!dataAccountId) return {};
+
+  for (const reminder of reminders) {
+    if (reminder.deleted) continue;
+    if (
+      reminder.incomeAccount !== dataAccountId ||
+      reminder.outcomeAccount !== dataAccountId
+    ) {
+      continue;
+    }
+
+    const parsed = parseJson(reminder.comment);
+    if (!parsed || typeof parsed !== 'object') continue;
+
+    if (
+      'type' in parsed &&
+      parsed.type === GOAL_REMINDERS_TYPE &&
+      'payload' in parsed &&
+      parsed.payload &&
+      typeof parsed.payload === 'object'
+    ) {
+      return parsed.payload as Record<string, string>;
+    }
+  }
+
+  return {};
+}
+
+export function findGoalRemindersReminder(
+  reminders: ZenReminder[],
+  dataAccountId: string | null
+): ZenReminder | null {
+  if (!dataAccountId) return null;
+
+  for (const reminder of reminders) {
+    if (reminder.deleted) continue;
+    if (
+      reminder.incomeAccount !== dataAccountId ||
+      reminder.outcomeAccount !== dataAccountId
+    ) {
+      continue;
+    }
+
+    const parsed = parseJson(reminder.comment);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'type' in parsed &&
+      parsed.type === GOAL_REMINDERS_TYPE
+    ) {
+      return reminder;
+    }
+  }
+
+  return null;
+}
+
+export function buildGoalRemindersComment(
+  links: Record<string, string>
+): string {
+  return JSON.stringify({
+    type: GOAL_REMINDERS_TYPE,
+    payload: links,
     updatedAt: new Date().toISOString(),
   });
 }

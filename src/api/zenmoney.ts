@@ -27,11 +27,13 @@ async function callZenmoneyDiff(
 
 export async function fetchZenmoneyDiff(
   token: string,
-  serverTimestamp: number = 0
+  serverTimestamp: number = 0,
+  forceFetch?: string[]
 ): Promise<ZenDiffResponse> {
   return callZenmoneyDiff(token, {
     currentClientTimestamp: Math.floor(Date.now() / 1000),
     serverTimestamp,
+    ...(forceFetch && forceFetch.length ? { forceFetch } : {}),
   });
 }
 

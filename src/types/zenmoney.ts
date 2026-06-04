@@ -104,6 +104,11 @@ export interface ZenReminder {
   deleted?: boolean;
 }
 
+export interface ZenReminderMarker {
+  id: string;
+  reminder: string; // id of the parent ZenReminder
+}
+
 export interface ZenUser {
   id: number;
   login: string;
@@ -127,6 +132,7 @@ export interface ZenDiffResponse {
   tag?: ZenTag[];
   transaction?: ZenTransaction[];
   reminder?: ZenReminder[];
+  reminderMarker?: ZenReminderMarker[];
   user?: ZenUser[];
 }
 

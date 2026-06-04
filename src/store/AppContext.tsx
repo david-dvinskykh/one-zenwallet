@@ -15,6 +15,7 @@ import type {
   ZenTransaction,
   ZenInstrument,
   ZenReminder,
+  ZenReminderMarker,
   ZenUser,
 } from '../types/zenmoney';
 
@@ -24,6 +25,7 @@ interface ZenData {
   transactions: ZenTransaction[];
   instruments: ZenInstrument[];
   reminders: ZenReminder[];
+  reminderMarkers: ZenReminderMarker[];
   serverTimestamp: number;
   user: ZenUser | null;
 }
@@ -34,6 +36,7 @@ interface DataDiff {
   transactions?: ZenTransaction[];
   instruments?: ZenInstrument[];
   reminders?: ZenReminder[];
+  reminderMarkers?: ZenReminderMarker[];
   user?: ZenUser;
   serverTimestamp: number;
 }
@@ -65,6 +68,7 @@ function mergeData(existing: ZenData | null, diff: DataDiff): ZenData {
     transactions: [],
     instruments: [],
     reminders: [],
+    reminderMarkers: [],
     serverTimestamp: 0,
     user: null,
   };
@@ -88,6 +92,7 @@ function mergeData(existing: ZenData | null, diff: DataDiff): ZenData {
     transactions: mergeArray(base.transactions, diff.transactions),
     instruments: mergeArray(base.instruments, diff.instruments),
     reminders: mergeArray(base.reminders, diff.reminders),
+    reminderMarkers: mergeArray(base.reminderMarkers, diff.reminderMarkers),
     serverTimestamp: diff.serverTimestamp,
     user: diff.user !== undefined ? diff.user : base.user,
   };
@@ -104,6 +109,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const hadCachedDataRef = useRef(false);
   const hadCachedUserRef = useRef(false);
+  // True when the cache predates reminderMarker support; triggers a one-time
+  // forceFetch so existing users get historical markers without a full re-login.
+  const needsMarkerBackfillRef = useRef(false);
 
   // Load cached data from IndexedDB on mount
   useEffect(() => {
@@ -112,6 +120,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setData(cached);
         hadCachedDataRef.current = true;
         if (cached.user != null) hadCachedUserRef.current = true;
+        if (!cached.reminderMarkers || cached.reminderMarkers.length === 0) {
+          needsMarkerBackfillRef.current = true;
+        }
       }
       setCacheLoaded(true);
     });
@@ -122,7 +133,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!background) setLoading(true);
       setError(null);
       try {
-        const diff = await fetchZenmoneyDiff(tok, timestamp);
+        // On an incremental sync, full snapshots already include reminderMarkers,
+        // but a pre-existing cache won't — backfill them once via forceFetch.
+        const forceFetch =
+          timestamp > 0 && needsMarkerBackfillRef.current ? ['reminderMarker'] : undefined;
+        const diff = await fetchZenmoneyDiff(tok, timestamp, forceFetch);
+        needsMarkerBackfillRef.current = false;
         setData((prev) => {
           const merged = mergeData(prev, {
             accounts: diff.account,
@@ -130,6 +146,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             transactions: diff.transaction,
             instruments: diff.instrument,
             reminders: diff.reminder,
+            reminderMarkers: diff.reminderMarker,
             user: diff.user?.[0],
             serverTimestamp: diff.serverTimestamp,
           });
