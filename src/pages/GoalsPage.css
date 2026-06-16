@@ -598,6 +598,12 @@
   font-weight: 400;
 }
 
+.goal-monthly-next {
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 0.74rem;
+}
+
 .goal-monthly-badge {
   font-size: 0.7rem;
   padding: 0.1rem 0.38rem;

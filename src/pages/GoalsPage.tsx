@@ -1054,51 +1054,16 @@ function buildHierarchicalOptions(
   return result;
 }
 
-function computeMonthlyNeeded(
-  currentAmount: number,
-  target: GoalTarget,
-  periodStart: string
-): number | null {
-  const type = target.type ?? 'one_time';
-
-  if (type === 'fixed_monthly') {
-    return target.amount > 0 ? target.amount : null;
-  }
-
-  if (type === 'recurring') {
-    const targetDate = target.date ?? '';
-    if (!targetDate || !periodStart) return null;
-    const tp = targetDate.split('-');
-    const sp = periodStart.split('-');
-    if (tp.length < 2 || sp.length < 2) return null;
-    const startYear = parseInt(sp[0], 10);
-    const startMonth = parseInt(sp[1], 10);
-    const startDay = sp.length >= 3 ? parseInt(sp[2], 10) : 1;
-    const targetDay = tp.length >= 3 ? parseInt(tp[2], 10) : 1;
-    let adjTargetYear = parseInt(tp[0], 10);
-    let adjTargetMonth = parseInt(tp[1], 10);
-    if (targetDay < startDay) {
-      adjTargetMonth -= 1;
-      if (adjTargetMonth === 0) { adjTargetMonth = 12; adjTargetYear -= 1; }
-    }
-    const monthsLeft = (adjTargetYear - startYear) * 12 + (adjTargetMonth - startMonth) + 1;
-    if (monthsLeft <= 0) return null;
-    const remaining = target.amount - currentAmount;
-    if (remaining <= 0) return 0;
-    return remaining / monthsLeft;
-  }
-
-  // one_time
-  const targetDate = target.date ?? '';
+// Months from the current period to the target, inclusive of the current month.
+// Returns null when dates are unusable or the window is empty.
+function monthsUntilTarget(targetDate: string, periodStart: string): number | null {
   if (!targetDate || !periodStart) return null;
   const tp = targetDate.split('-');
   const sp = periodStart.split('-');
   if (tp.length < 2 || sp.length < 2) return null;
-
   const startYear = parseInt(sp[0], 10);
   const startMonth = parseInt(sp[1], 10);
   const startDay = sp.length >= 3 ? parseInt(sp[2], 10) : 1;
-
   const targetDay = tp.length >= 3 ? parseInt(tp[2], 10) : 1;
   let adjTargetYear = parseInt(tp[0], 10);
   let adjTargetMonth = parseInt(tp[1], 10);
@@ -1106,13 +1071,34 @@ function computeMonthlyNeeded(
     adjTargetMonth -= 1;
     if (adjTargetMonth === 0) { adjTargetMonth = 12; adjTargetYear -= 1; }
   }
-
   const monthsLeft = (adjTargetYear - startYear) * 12 + (adjTargetMonth - startMonth) + 1;
+  return monthsLeft > 0 ? monthsLeft : null;
+}
+
+// Per-month amount needed to reach the target.
+// `excludeCurrentMonth` drops the current month from the window — use it with
+// the full saved balance to get the amount required for each *future* month
+// once the current month has already been funded.
+function computeMonthlyNeeded(
+  saved: number,
+  target: GoalTarget,
+  periodStart: string,
+  excludeCurrentMonth = false
+): number | null {
+  const type = target.type ?? 'one_time';
+
+  if (type === 'fixed_monthly') {
+    return target.amount > 0 ? target.amount : null;
+  }
+
+  // recurring and one_time share identical month math
+  const monthsInclCurrent = monthsUntilTarget(target.date ?? '', periodStart);
+  if (monthsInclCurrent === null) return null;
+  const monthsLeft = excludeCurrentMonth ? monthsInclCurrent - 1 : monthsInclCurrent;
   if (monthsLeft <= 0) return null;
 
-  const remaining = target.amount - currentAmount;
+  const remaining = target.amount - saved;
   if (remaining <= 0) return 0;
-
   return remaining / monthsLeft;
 }
 
@@ -1185,11 +1171,22 @@ function GoalCard({
 
   const targetType = target?.type ?? 'one_time';
 
-  const monthlyNeeded = target ? computeMonthlyNeeded(goal.amount, target, currentPeriodStart) : null;
-
   const thisMonthAdded = goal.transactions
     .filter((tx) => tx.amount > 0 && tx.date >= currentPeriodStart)
     .reduce((sum, tx) => sum + tx.amount, 0);
+
+  // Amount the current month *should* hold — based on what was saved before
+  // this month, spread over the window that still includes this month.
+  const savedBeforeThisMonth = goal.amount - thisMonthAdded;
+  const monthlyNeeded = target
+    ? computeMonthlyNeeded(savedBeforeThisMonth, target, currentPeriodStart)
+    : null;
+
+  // Amount required for each future month once this month is funded — full
+  // saved balance spread over the remaining months, current month excluded.
+  const nextMonthNeeded = target
+    ? computeMonthlyNeeded(goal.amount, target, currentPeriodStart, true)
+    : null;
 
   const leftAmount =
     monthlyNeeded !== null
@@ -1358,9 +1355,16 @@ function GoalCard({
                 <div className="goal-monthly-needed">
                   {monthlyNeeded === 0
                     ? 'Target reached!'
-                    : `~${monthlyNeeded.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${currency}/mo`}
+                    : `~${monthlyNeeded.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${currency}/mo this month`}
                 </div>
               )}
+              {nextMonthNeeded !== null &&
+                nextMonthNeeded > 0 &&
+                targetType !== 'fixed_monthly' && (
+                  <div className="goal-monthly-needed goal-monthly-next">
+                    ~{nextMonthNeeded.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo from next month
+                  </div>
+                )}
               {monthlyNeeded === null && targetType === 'one_time' && target?.date && (
                 <div className="goal-monthly-needed goal-monthly-past">Target date passed</div>
               )}
