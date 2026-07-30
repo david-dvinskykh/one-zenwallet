@@ -8,14 +8,19 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "npm run build && gh-pages -d dist"
+    "deploy": "npm run build && gh-pages -d dist",
+    "mcp:build": "esbuild mcp-server/src/server.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=mcp-server/dist/server.js",
+    "mcp:start": "node mcp-server/dist/server.js",
+    "mcp:test": "esbuild mcp-server/test/store.e2e.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=mcp-server/dist/store.e2e.mjs && node mcp-server/dist/store.e2e.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.14.1",
     "vite-plugin-pwa": "^1.2.0",
-    "workbox-window": "^7.4.0"
+    "workbox-window": "^7.4.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -23,6 +28,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",

@@ -10,13 +10,13 @@ const IGNORED_RESTORE_ENTITY_KEYS = new Set([
   'deleted',
 ]);
 
-interface BackupFileEnvelope {
+export interface BackupFileEnvelope {
   version: number;
   createdAt: string;
   snapshot: Record<string, unknown>;
 }
 
-function buildBackupFileName(date: Date): string {
+export function buildBackupFileName(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `one-zenwallet-backup-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}.json`;
 }
@@ -442,17 +442,26 @@ function buildDebtAccountRemap(
   return map;
 }
 
-export async function createZenBackupAndDownload(token: string): Promise<string> {
+// Environment-agnostic backup: pulls a full snapshot and wraps it in the backup
+// envelope. Callers decide how to persist it (browser download, file write…).
+export async function createZenBackupSnapshot(
+  token: string,
+  now: Date = new Date()
+): Promise<BackupFileEnvelope> {
   const snapshot = (await fetchZenmoneyDiff(token, 0)) as unknown as Record<
     string,
     unknown
   >;
-  const now = new Date();
-  const envelope: BackupFileEnvelope = {
+  return {
     version: BACKUP_FILE_VERSION,
     createdAt: now.toISOString(),
     snapshot,
   };
+}
+
+export async function createZenBackupAndDownload(token: string): Promise<string> {
+  const now = new Date();
+  const envelope = await createZenBackupSnapshot(token, now);
 
   const fileName = buildBackupFileName(now);
   downloadJsonFile(JSON.stringify(envelope, null, 2), fileName);
@@ -466,10 +475,21 @@ export async function restoreZenBackupFromFile(params: {
   currentUserId?: number;
   chunkSize?: number;
 }): Promise<void> {
+  const { file, ...rest } = params;
+  await restoreZenBackup({ ...rest, backupText: await file.text() });
+}
+
+export async function restoreZenBackup(params: {
+  token: string;
+  currentServerTimestamp: number;
+  backupText: string;
+  currentUserId?: number;
+  chunkSize?: number;
+}): Promise<void> {
   const {
     token,
     currentServerTimestamp,
-    file,
+    backupText,
     currentUserId,
     chunkSize = 100,
   } = params;
@@ -505,7 +525,7 @@ export async function restoreZenBackupFromFile(params: {
     });
   }
 
-  const backup = parseBackupEnvelope(await file.text());
+  const backup = parseBackupEnvelope(backupText);
   const backupAccounts = Array.isArray(backup.snapshot.account)
     ? backup.snapshot.account
     : [];

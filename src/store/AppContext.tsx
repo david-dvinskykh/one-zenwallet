@@ -9,37 +9,7 @@ import {
 } from 'react';
 import { fetchZenmoneyDiff } from '../api/zenmoney';
 import * as storage from '../utils/storage';
-import type {
-  ZenAccount,
-  ZenTag,
-  ZenTransaction,
-  ZenInstrument,
-  ZenReminder,
-  ZenReminderMarker,
-  ZenUser,
-} from '../types/zenmoney';
-
-interface ZenData {
-  accounts: ZenAccount[];
-  tags: ZenTag[];
-  transactions: ZenTransaction[];
-  instruments: ZenInstrument[];
-  reminders: ZenReminder[];
-  reminderMarkers: ZenReminderMarker[];
-  serverTimestamp: number;
-  user: ZenUser | null;
-}
-
-interface DataDiff {
-  accounts?: ZenAccount[];
-  tags?: ZenTag[];
-  transactions?: ZenTransaction[];
-  instruments?: ZenInstrument[];
-  reminders?: ZenReminder[];
-  reminderMarkers?: ZenReminderMarker[];
-  user?: ZenUser;
-  serverTimestamp: number;
-}
+import { mergeZenData, toZenDataDiff, type ZenData } from '../utils/zenData';
 
 interface AppState {
   token: string | null;
@@ -59,43 +29,6 @@ export function useApp(): AppState {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error('useApp must be used within AppProvider');
   return ctx;
-}
-
-function mergeData(existing: ZenData | null, diff: DataDiff): ZenData {
-  const base: ZenData = existing ?? {
-    accounts: [],
-    tags: [],
-    transactions: [],
-    instruments: [],
-    reminders: [],
-    reminderMarkers: [],
-    serverTimestamp: 0,
-    user: null,
-  };
-
-  function mergeArray<T extends { id: string | number }>(
-    existing: T[] | null | undefined,
-    incoming: T[] | null | undefined
-  ): T[] {
-    const base = existing ?? [];
-    if (!incoming) return base;
-    const map = new Map(base.map((item) => [item.id, item]));
-    for (const item of incoming) {
-      map.set(item.id, item);
-    }
-    return Array.from(map.values());
-  }
-
-  return {
-    accounts: mergeArray(base.accounts, diff.accounts),
-    tags: mergeArray(base.tags, diff.tags),
-    transactions: mergeArray(base.transactions, diff.transactions),
-    instruments: mergeArray(base.instruments, diff.instruments),
-    reminders: mergeArray(base.reminders, diff.reminders),
-    reminderMarkers: mergeArray(base.reminderMarkers, diff.reminderMarkers),
-    serverTimestamp: diff.serverTimestamp,
-    user: diff.user !== undefined ? diff.user : base.user,
-  };
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -140,16 +73,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const diff = await fetchZenmoneyDiff(tok, timestamp, forceFetch);
         needsMarkerBackfillRef.current = false;
         setData((prev) => {
-          const merged = mergeData(prev, {
-            accounts: diff.account,
-            tags: diff.tag,
-            transactions: diff.transaction,
-            instruments: diff.instrument,
-            reminders: diff.reminder,
-            reminderMarkers: diff.reminderMarker,
-            user: diff.user?.[0],
-            serverTimestamp: diff.serverTimestamp,
-          });
+          const merged = mergeZenData(prev, toZenDataDiff(diff));
           storage.setCachedData(merged);
           storage.setServerTimestamp(diff.serverTimestamp);
           return merged;

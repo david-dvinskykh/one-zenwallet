@@ -11,13 +11,19 @@ npm run build                   # tsc -b && vite build
 npm run lint                    # eslint
 npm run preview                 # preview dist
 npm run deploy                  # build + push to gh-pages branch
+
+npm run mcp:build               # bundle the MCP server (esbuild → mcp-server/dist/server.js)
+npm run mcp:start               # run the MCP server over stdio
+npm run mcp:test                # MCP end-to-end run against a fake ZenMoney API
 ```
 
-No test suite exists yet.
+The web app has no test suite; `npm run mcp:test` covers the MCP server's store logic.
 
 ## Architecture
 
 Single-page React 19 + TypeScript PWA. No routing library — `App.tsx` renders one of three views based on global state: `LoginPage` → `WalletSelectPage` → `GoalsPage`.
+
+Everything in `src/utils` and `src/api` is framework-free and shared with the MCP server (`mcp-server/`); only `src/pages`, `src/store` and `src/utils/storage.ts` are browser-specific.
 
 ### State (`src/store/AppContext.tsx`)
 
@@ -48,9 +54,17 @@ Pure function `computeGoals(transactions, tags, accounts, selectedWalletId, opti
 
 Manual goal assignments are persisted to ZenMoney itself via a synthetic archived account named `[One-Zenwallet Data]` and a `ZenReminder` record whose `comment` field stores JSON (`{ type: "oneZenwalletManualGoals", payload: {...} }`). This allows assignments to survive across devices without a backend.
 
+### Shared Derived Logic (`src/utils/goalMath.ts`, `src/utils/goalReminders.ts`, `src/utils/zenData.ts`)
+
+Framework-free helpers used by both `GoalsPage` and the MCP server: period start / monthly-need / goal progress math, goal↔reminder maps and reminder entity builders, and the id-keyed `mergeZenData` snapshot merge.
+
 ### Backup/Restore (`src/utils/backupRestore.ts`)
 
-`createZenBackupAndDownload` — fetches full diff and downloads as JSON. `restoreZenBackupFromFile` — re-uploads all entities with remapped UUIDs, handles debt account matching, and pushes in dependency order (merchant → tag → budget → account → reminder → transaction).
+`createZenBackupSnapshot` / `restoreZenBackup` are environment-agnostic; `createZenBackupAndDownload` and `restoreZenBackupFromFile` are the browser wrappers (download link, `File` input). Restore re-uploads all entities with remapped UUIDs, handles debt account matching, and pushes in dependency order (merchant → tag → budget → account → reminder → transaction).
+
+### MCP Server (`mcp-server/`)
+
+Node stdio MCP server exposing the same operations as the UI (25 tools: session, wallets, goals, feed/assignment, reminders, backup). `mcp-server/src/store.ts` is the `AppContext` equivalent — cached snapshot plus locally staged changes flushed by `zen_save`. State lives in `~/.one-zenwallet-mcp` (`ONE_ZENWALLET_MCP_STATE_DIR`). Bundled with esbuild because it imports the app's extensionless TS modules directly. See `mcp-server/README.md`.
 
 ### PWA
 
@@ -62,5 +76,5 @@ Manual goal assignments are persisted to ZenMoney itself via a synthetic archive
 - `ZenReminder` records on the hidden data account are repurposed as a key-value store (not actual reminders). Formats: `linkedAccounts` (account→tag map), `oneZenwalletManualGoals` (transaction→tag map), `oneZenwalletGoalTargets` (tag→GoalTarget), and `oneZenwalletGoalReminders` (goal tag→reminder id, display-only link for transfer reminders).
 - ZenMoney does **not** allow categories/tags on transfer reminders (only income/expense). Real recurring transfer reminders are associated to a goal via the `oneZenwalletGoalReminders` map, not by tagging them.
 - A transaction's `reminderMarker` field is a `ReminderMarker` entity id (one per occurrence), **not** a `Reminder` id. Resolve via the `reminderMarker` table's `reminder` field to get the parent reminder.
-- `mergeData` in AppContext uses id-keyed Maps so repeated syncs are idempotent.
+- `mergeZenData` (`src/utils/zenData.ts`) uses id-keyed Maps so repeated syncs are idempotent.
 - Install with `--legacy-peer-deps` because vite-plugin-pwa peer dep declarations lag behind React 19.

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
-import { computeGoals } from '../utils/goals';
+import { computeGoals, isTransferTransaction } from '../utils/goals';
 import {
   clearSelectedWallet,
   setManualGoalAssignment,
@@ -15,16 +15,23 @@ import {
 } from '../utils/hiddenData';
 import { syncHiddenDataToZenmoney } from '../utils/hiddenDataSync';
 import { syncGoalRemindersToZenmoney } from '../utils/goalRemindersSync';
+import {
+  computeCurrentPeriodStart,
+  computeGoalProgress,
+  reminderDayOfMonth,
+} from '../utils/goalMath';
+import {
+  applyGoalReminderConfig,
+  buildGoalReminder,
+  buildGoalReminderMap,
+  buildMarkerToReminderMap,
+  buildSuggestedReminderMap,
+  findSameReminderUnassignedTransactions,
+  type GoalReminderConfig,
+} from '../utils/goalReminders';
 import { pushZenmoneyDiff } from '../api/zenmoney';
 import type { Goal, GoalFeedItem, GoalTarget, ZenAccount, ZenReminder, ZenTransaction } from '../types/zenmoney';
 import './GoalsPage.css';
-
-interface GoalReminderConfig {
-  type: 'transfer' | 'income';
-  sourceAccountId: string;
-  dayOfMonth: number;
-  amount: number;
-}
 
 interface BulkSuggestion {
   tagId: string;
@@ -91,58 +98,23 @@ export function GoalsPage() {
 
   const goalReminderMap = useMemo(() => {
     if (!data) return new Map<string, ZenReminder>();
-    const dataAccountId = getDataAccount(data.accounts)?.id;
-    const map = new Map<string, ZenReminder>();
-    for (const r of data.reminders) {
-      if (r.deleted) continue;
-      if (dataAccountId && (r.incomeAccount === dataAccountId || r.outcomeAccount === dataAccountId)) continue;
-      if (r.interval !== 'month') continue;
-      if (!r.tag?.length) continue;
-      for (const tagId of r.tag) {
-        map.set(tagId, r);
-      }
-    }
-    // Transfer reminders cannot carry a tag in ZenMoney, so they are linked to a
-    // goal via the goalReminders map (tagId -> reminderId), an explicit
-    // display-only association. Resolve those directly to the reminder.
-    const goalReminders = parseGoalRemindersFromReminders(data.reminders, dataAccountId ?? null);
-    for (const [tagId, reminderId] of Object.entries(goalReminders)) {
-      if (map.has(tagId)) continue;
-      const reminder = data.reminders.find((r) => r.id === reminderId && !r.deleted);
-      if (reminder) map.set(tagId, reminder);
-    }
-    return map;
+    return buildGoalReminderMap(data.reminders, data.accounts);
   }, [data]);
 
-  // transaction.reminderMarker references a ReminderMarker entity, not a Reminder.
-  // This map resolves markerId -> parent reminderId.
-  const markerToReminderId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const m of data?.reminderMarkers ?? []) {
-      map.set(m.id, m.reminder);
-    }
-    return map;
-  }, [data]);
+  const markerToReminderId = useMemo(
+      () => buildMarkerToReminderMap(data?.reminderMarkers ?? []),
+      [data]
+  );
 
   const suggestedReminderMap = useMemo(() => {
     if (!data) return new Map<string, ZenReminder>();
-    const map = new Map<string, ZenReminder>();
-    for (const goal of goals) {
-      if (goalReminderMap.has(goal.categoryId)) continue;
-      const reminderCounts = new Map<string, number>();
-      for (const tx of goal.transactions) {
-        const marker = transactionMap.get(tx.id)?.reminderMarker;
-        if (!marker) continue;
-        const reminderId = markerToReminderId.get(marker);
-        if (!reminderId) continue;
-        reminderCounts.set(reminderId, (reminderCounts.get(reminderId) ?? 0) + 1);
-      }
-      if (!reminderCounts.size) continue;
-      const topReminderId = [...reminderCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      const reminder = data.reminders.find((r) => r.id === topReminderId && !r.deleted);
-      if (reminder) map.set(goal.categoryId, reminder);
-    }
-    return map;
+    return buildSuggestedReminderMap({
+      goals,
+      reminders: data.reminders,
+      transactionMap,
+      markerToReminderId,
+      goalReminderMap,
+    });
   }, [data, goals, goalReminderMap, transactionMap, markerToReminderId]);
 
   const handleCreateReminder = async (categoryId: string, config: GoalReminderConfig) => {
@@ -155,36 +127,15 @@ export function GoalsPage() {
     if (!sourceAccount) return;
 
     const now = Math.floor(Date.now() / 1000);
-    const today = new Date();
-    let startMonth = today.getMonth() + 1;
-    let startYear = today.getFullYear();
-    if (today.getDate() >= config.dayOfMonth) {
-      startMonth++;
-      if (startMonth > 12) { startMonth = 1; startYear++; }
-    }
-    const startDate = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(config.dayOfMonth).padStart(2, '0')}`;
-
-    const newReminder: ZenReminder = {
-      id: crypto.randomUUID(),
-      incomeAccount: selectedWalletId,
-      outcomeAccount: config.type === 'transfer' ? config.sourceAccountId : selectedWalletId,
-      income: config.amount,
-      incomeInstrument: walletAccount.instrument,
-      outcome: config.type === 'transfer' ? config.amount : 0,
-      outcomeInstrument: sourceAccount.instrument,
-      tag: [categoryId],
-      merchant: null,
-      comment: null,
-      payee: null,
-      interval: 'month',
-      step: 1,
-      points: [config.dayOfMonth],
-      startDate,
-      endDate: null,
-      notify: true,
-      changed: now,
-      user: data.user?.id ?? 0,
-    };
+    const newReminder = buildGoalReminder({
+      categoryId,
+      config,
+      walletId: selectedWalletId,
+      walletInstrument: walletAccount.instrument,
+      sourceInstrument: sourceAccount.instrument,
+      userId: data.user?.id ?? 0,
+      now,
+    });
 
     const existing = goalReminderMap.get(categoryId);
     const reminderPatch = existing
@@ -254,25 +205,12 @@ export function GoalsPage() {
     if (isTransfer && !sourceAccount) return;
 
     const now = Math.floor(Date.now() / 1000);
-    const today = new Date();
-    let startMonth = today.getMonth() + 1;
-    let startYear = today.getFullYear();
-    if (today.getDate() >= config.dayOfMonth) {
-      startMonth++;
-      if (startMonth > 12) { startMonth = 1; startYear++; }
-    }
-    const startDate = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(config.dayOfMonth).padStart(2, '0')}`;
-
-    const updated: ZenReminder = {
-      ...reminder,
-      income: config.amount,
-      outcome: isTransfer ? config.amount : 0,
-      outcomeAccount: isTransfer ? config.sourceAccountId : reminder.incomeAccount,
-      outcomeInstrument: isTransfer && sourceAccount ? sourceAccount.instrument : reminder.incomeInstrument,
-      points: [config.dayOfMonth],
-      startDate,
-      changed: now,
-    };
+    const updated = applyGoalReminderConfig(
+      reminder,
+      config,
+      sourceAccount?.instrument ?? null,
+      now
+    );
     await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: [updated] });
     await refresh();
   };
@@ -391,22 +329,10 @@ export function GoalsPage() {
     setAddGoalTagId('');
   };
 
-  const currentPeriodStart = useMemo(() => {
-    const today = new Date();
-    const day = today.getDate();
-    let year = today.getFullYear();
-    let month = today.getMonth();
-    if (day < monthStartDay) {
-      month -= 1;
-      if (month < 0) {
-        month = 11;
-        year -= 1;
-      }
-    }
-    const mm = String(month + 1).padStart(2, '0');
-    const dd = String(monthStartDay).padStart(2, '0');
-    return `${year}-${mm}-${dd}`;
-  }, [monthStartDay]);
+  const currentPeriodStart = useMemo(
+      () => computeCurrentPeriodStart(monthStartDay),
+      [monthStartDay]
+  );
 
   const thisMonthAddings = useMemo(
       () => feed
@@ -454,25 +380,19 @@ export function GoalsPage() {
     setBulkSuggestion(null);
 
     if (nextTagId) {
-      const tx = transactionMap.get(transactionId);
-      const marker = tx?.reminderMarker;
-      const reminderId = marker ? markerToReminderId.get(marker) : undefined;
-      if (marker && reminderId) {
-        // Group by parent reminder: each occurrence has a distinct marker,
-        // so match on the resolved reminderId, not the marker itself.
-        const affectedTransactionIds = feed
-            .filter((item) => {
-              if (item.transactionId === transactionId) return false;
-              if (item.goalId !== null) return false;
-              if (manualAssignments[item.transactionId]) return false;
-              const m = transactionMap.get(item.transactionId)?.reminderMarker;
-              return m ? markerToReminderId.get(m) === reminderId : false;
-            })
-            .map((item) => item.transactionId);
-
-        if (affectedTransactionIds.length > 0) {
-          setBulkSuggestion({tagId: nextTagId, reminderMarker: marker, affectedTransactionIds});
-        }
+      const related = findSameReminderUnassignedTransactions({
+        transactionId,
+        feed,
+        transactionMap,
+        markerToReminderId,
+        manualAssignments,
+      });
+      if (related && related.transactionIds.length > 0) {
+        setBulkSuggestion({
+          tagId: nextTagId,
+          reminderMarker: related.reminderMarker,
+          affectedTransactionIds: related.transactionIds,
+        });
       }
     }
   };
@@ -518,8 +438,7 @@ export function GoalsPage() {
     const regularIds: string[] = [];
     for (const txId of transactionIds) {
       const tx = transactionMap.get(txId);
-      const isTransfer = tx != null && tx.outcomeAccount !== tx.incomeAccount && tx.income > 0 && tx.outcome > 0;
-      if (isTransfer) transferIds.push(txId);
+      if (tx != null && isTransferTransaction(tx)) transferIds.push(txId);
       else regularIds.push(txId);
     }
 
@@ -1054,65 +973,6 @@ function buildHierarchicalOptions(
   return result;
 }
 
-// Months from the current period to the target, inclusive of the current month.
-// Returns null when dates are unusable or the window is empty.
-function monthsUntilTarget(targetDate: string, periodStart: string): number | null {
-  if (!targetDate || !periodStart) return null;
-  const tp = targetDate.split('-');
-  const sp = periodStart.split('-');
-  if (tp.length < 2 || sp.length < 2) return null;
-  const startYear = parseInt(sp[0], 10);
-  const startMonth = parseInt(sp[1], 10);
-  const startDay = sp.length >= 3 ? parseInt(sp[2], 10) : 1;
-  const targetDay = tp.length >= 3 ? parseInt(tp[2], 10) : 1;
-  let adjTargetYear = parseInt(tp[0], 10);
-  let adjTargetMonth = parseInt(tp[1], 10);
-  if (targetDay < startDay) {
-    adjTargetMonth -= 1;
-    if (adjTargetMonth === 0) { adjTargetMonth = 12; adjTargetYear -= 1; }
-  }
-  const monthsLeft = (adjTargetYear - startYear) * 12 + (adjTargetMonth - startMonth) + 1;
-  return monthsLeft > 0 ? monthsLeft : null;
-}
-
-// Per-month amount needed to reach the target.
-// `excludeCurrentMonth` drops the current month from the window — use it with
-// the full saved balance to get the amount required for each *future* month
-// once the current month has already been funded.
-function computeMonthlyNeeded(
-  saved: number,
-  target: GoalTarget,
-  periodStart: string,
-  excludeCurrentMonth = false
-): number | null {
-  const type = target.type ?? 'one_time';
-
-  if (type === 'fixed_monthly') {
-    return target.amount > 0 ? target.amount : null;
-  }
-
-  // recurring and one_time share identical month math
-  const monthsInclCurrent = monthsUntilTarget(target.date ?? '', periodStart);
-  if (monthsInclCurrent === null) return null;
-  const monthsLeft = excludeCurrentMonth ? monthsInclCurrent - 1 : monthsInclCurrent;
-  if (monthsLeft <= 0) return null;
-
-  const remaining = target.amount - saved;
-  if (remaining <= 0) return 0;
-  return remaining / monthsLeft;
-}
-
-// ZenMoney monthly reminders carry the recurrence day in startDate; `points` is
-// only the day for reminders this app creates (externally-created ones may have
-// points: [0]). Prefer a valid points day, else fall back to the startDate day.
-function reminderDayOfMonth(reminder: ZenReminder): number {
-  const p = reminder.points?.[0];
-  if (typeof p === 'number' && p >= 1 && p <= 31) return p;
-  const sd = reminder.startDate?.split('-')[2];
-  const d = sd ? parseInt(sd, 10) : NaN;
-  return !isNaN(d) && d >= 1 && d <= 31 ? d : 1;
-}
-
 function GoalCard({
   goal,
   currency,
@@ -1171,41 +1031,8 @@ function GoalCard({
 
   const targetType = target?.type ?? 'one_time';
 
-  const thisMonthAdded = goal.transactions
-    .filter((tx) => tx.amount > 0 && tx.date >= currentPeriodStart)
-    .reduce((sum, tx) => sum + tx.amount, 0);
-
-  // Amount the current month *should* hold — based on what was saved before
-  // this month, spread over the window that still includes this month.
-  const savedBeforeThisMonth = goal.amount - thisMonthAdded;
-  const monthlyNeeded = target
-    ? computeMonthlyNeeded(savedBeforeThisMonth, target, currentPeriodStart)
-    : null;
-
-  // Amount required for each future month once this month is funded — full
-  // saved balance spread over the remaining months, current month excluded.
-  const nextMonthNeeded = target
-    ? computeMonthlyNeeded(goal.amount, target, currentPeriodStart, true)
-    : null;
-
-  const leftAmount =
-    monthlyNeeded !== null
-      ? Math.max(0, monthlyNeeded - thisMonthAdded)
-      : target
-        ? Math.max(0, target.amount - goal.amount)
-        : null;
-
-  // Monthly contribution status: red = nothing added, yellow = partial, green = met/reached
-  const monthlyStatus =
-    monthlyNeeded === null
-      ? null
-      : monthlyNeeded === 0
-        ? 'met'
-        : thisMonthAdded <= 0
-          ? 'none'
-          : thisMonthAdded < monthlyNeeded
-            ? 'partial'
-            : 'met';
+  const { thisMonthAdded, monthlyNeeded, nextMonthNeeded, leftAmount, monthlyStatus } =
+    computeGoalProgress(goal, target, currentPeriodStart);
 
   const updateTarget = (patch: Partial<GoalTarget>) => {
     const base = target ?? { type: 'one_time' as const, amount: 0 };

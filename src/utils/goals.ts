@@ -10,6 +10,18 @@ import type {
 } from '../types/zenmoney';
 import { getDataAccount } from './hiddenData';
 
+/**
+ * A transfer moves money between two of the user's own accounts. ZenMoney has no
+ * transfer flag — both sides carry an amount and the accounts differ.
+ */
+export function isTransferTransaction(transaction: ZenTransaction): boolean {
+  return (
+    transaction.outcomeAccount !== transaction.incomeAccount &&
+    transaction.income > 0 &&
+    transaction.outcome > 0
+  );
+}
+
 interface ComputeGoalsOptions {
   reminders?: ZenReminder[];
   manualAssignments?: Record<string, string>;
@@ -117,10 +129,7 @@ export function computeGoals(
 
     if (!isOutcomeFromWallet && !isIncomeToWallet) continue;
 
-    const isTransfer =
-      tx.outcomeAccount !== tx.incomeAccount &&
-      tx.income > 0 &&
-      tx.outcome > 0;
+    const isTransfer = isTransferTransaction(tx);
 
     const manualTagId = manualAssignments[tx.id] ?? null;
     const directionAmount =
