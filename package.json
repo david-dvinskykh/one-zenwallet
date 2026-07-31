@@ -3,7 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "one-zenwallet-mcp": "mcp-server/dist/server.js"
+  },
+  "files": [
+    "mcp-server/dist"
+  ],
   "scripts": {
+    "prepare": "npm run mcp:build",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

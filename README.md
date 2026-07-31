@@ -24,6 +24,18 @@ npm run dev
 
 You can obtain a token from [zerro.app/token](https://zerro.app/token) or via the [Zenmoney API](https://github.com/zenmoney/ZenPlugins/wiki/ZenMoney-API).
 
+## MCP server
+
+The same operations are available to AI assistants through an MCP server — goals,
+targets, transaction assignment, reminders and backups:
+
+```bash
+npx -y one-zenwallet-mcp                      # from npm
+npx -y github:david-dvinskykh/one-zenwallet   # from this repo
+```
+
+See [`mcp-server/README.md`](mcp-server/README.md) for the tool list and client config.
+
 ## Deployment
 
 The app auto-deploys to GitHub Pages on push to `main` via GitHub Actions.

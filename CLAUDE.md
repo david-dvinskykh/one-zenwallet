@@ -66,6 +66,10 @@ Framework-free helpers used by both `GoalsPage` and the MCP server: period start
 
 Node stdio MCP server exposing the same operations as the UI (25 tools: session, wallets, goals, feed/assignment, reminders, backup). `mcp-server/src/store.ts` is the `AppContext` equivalent — cached snapshot plus locally staged changes flushed by `zen_save`. State lives in `~/.one-zenwallet-mcp` (`ONE_ZENWALLET_MCP_STATE_DIR`). Bundled with esbuild because it imports the app's extensionless TS modules directly. See `mcp-server/README.md`.
 
+Two npx entry points, both running `mcp-server/dist/server.js`:
+- `mcp-server/package.json` — the publishable `one-zenwallet-mcp` package (`npx one-zenwallet-mcp`); `prepack` rebuilds the bundle via the root, and only `dist/server.js` ships.
+- The root package's `bin` + `prepare` — makes `npx github:<owner>/one-zenwallet` build and run the server from a git checkout. This is why `npm install` in the repo also runs `mcp:build`.
+
 ### PWA
 
 `vite-plugin-pwa` with `autoUpdate` service worker. Base path is `/one-zenwallet/` (GitHub Pages). Manifest and SW are auto-generated.

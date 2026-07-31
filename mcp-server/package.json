@@ -1,0 +1,38 @@
+{
+  "name": "one-zenwallet-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for One-Zenwallet — manage ZenMoney savings goals, transactions, reminders and backups",
+  "type": "module",
+  "bin": {
+    "one-zenwallet-mcp": "dist/server.js"
+  },
+  "main": "dist/server.js",
+  "files": [
+    "dist/server.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm --prefix .. run mcp:build",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "zenmoney",
+    "budget",
+    "savings-goals"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/david-dvinskykh/one-zenwallet.git",
+    "directory": "mcp-server"
+  },
+  "homepage": "https://github.com/david-dvinskykh/one-zenwallet/tree/main/mcp-server#readme"
+}

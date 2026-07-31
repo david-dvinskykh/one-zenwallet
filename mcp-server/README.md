@@ -6,14 +6,17 @@ One-Zenwallet web app, so an assistant can manage ZenMoney savings goals directl
 It shares the app's logic — goal attribution, targets, hidden-data storage, reminders,
 backup/restore all come from `src/utils`, not from a copy — so both surfaces always agree.
 
-## Install and run
+## Run it
+
+No clone or build needed — `npx` fetches and starts the server:
 
 ```bash
-npm install --legacy-peer-deps
-npm run mcp:build     # bundles to mcp-server/dist/server.js
-npm run mcp:start     # stdio server
-npm run mcp:test      # end-to-end run against a fake ZenMoney API
+npx -y one-zenwallet-mcp                                  # from npm, once published
+npx -y github:david-dvinskykh/one-zenwallet               # straight from the repo
 ```
+
+The GitHub form builds the bundle during install (`prepare`), so it always runs the
+current state of the branch. Add `#branch-name` to pin one.
 
 Register it with an MCP client (Claude Desktop, Claude Code, …):
 
@@ -21,8 +24,8 @@ Register it with an MCP client (Claude Desktop, Claude Code, …):
 {
   "mcpServers": {
     "one-zenwallet": {
-      "command": "node",
-      "args": ["/absolute/path/to/one-zenwallet/mcp-server/dist/server.js"],
+      "command": "npx",
+      "args": ["-y", "one-zenwallet-mcp"],
       "env": { "ZENMONEY_TOKEN": "your-zenmoney-api-token" }
     }
   }
@@ -31,6 +34,34 @@ Register it with an MCP client (Claude Desktop, Claude Code, …):
 
 `ZENMONEY_TOKEN` is optional — `zen_login` can supply the token instead, and a token
 stored that way takes precedence.
+
+## Develop it
+
+```bash
+npm install --legacy-peer-deps   # also builds the server (prepare script)
+npm run mcp:build                # bundles to mcp-server/dist/server.js
+npm run mcp:start                # stdio server
+npm run mcp:test                 # end-to-end run against a fake ZenMoney API
+```
+
+From a checkout, an MCP client can point straight at the bundle:
+
+```json
+{
+  "mcpServers": {
+    "one-zenwallet": {
+      "command": "node",
+      "args": ["/absolute/path/to/one-zenwallet/mcp-server/dist/server.js"]
+    }
+  }
+}
+```
+
+### Publishing
+
+`mcp-server/` is its own npm package. `npm publish ./mcp-server` rebuilds the bundle
+(`prepack`) and ships only `dist/server.js` plus this README; the app's sources are
+compiled into the bundle. Set a `license` field before the first publish.
 
 ## Local state
 
