@@ -14,7 +14,14 @@ import {
   buildMarkerToReminderMap,
   buildSuggestedReminderMap,
 } from '../../src/utils/goalReminders';
-import { mergeZenData, toZenDataDiff, type ZenData } from '../../src/utils/zenData';
+import {
+  applyLocalChanges,
+  mergeZenData,
+  nextChangedTimestamp,
+  toZenDataDiff,
+  type ZenData,
+  type ZenLocalChanges,
+} from '../../src/utils/zenData';
 import type {
   Goal,
   GoalFeedItem,
@@ -179,6 +186,29 @@ export class ZenStore {
   async push(patch: Record<string, unknown>): Promise<void> {
     const token = this.requireToken();
     await pushZenmoneyDiff(token, this.requireData().serverTimestamp, patch);
+    await this.applyLocal({
+      accounts: patch.account as ZenAccount[] | undefined,
+      tags: patch.tag as ZenTag[] | undefined,
+      transactions: patch.transaction as ZenTransaction[] | undefined,
+      reminders: patch.reminder as ZenReminder[] | undefined,
+    });
+  }
+
+  /**
+   * Folds entities we just pushed into the cached snapshot. The following
+   * incremental sync does not return our own writes, so without this the
+   * snapshot — and every goal amount derived from it — stays on the pre-push
+   * values. See `applyLocalChanges` in src/utils/zenData.ts.
+   */
+  async applyLocal(changes: ZenLocalChanges): Promise<void> {
+    if (!this.snapshot) return;
+    this.snapshot = applyLocalChanges(this.snapshot, changes);
+    await writeCache(this.snapshot);
+  }
+
+  /** A `changed` stamp the ZenMoney server will not discard as stale. */
+  nextChanged(previousChanged?: number | null): number {
+    return nextChangedTimestamp(this.requireData().serverTimestamp, previousChanged);
   }
 
   // ---------------------------------------------------------------- lookups
@@ -379,20 +409,23 @@ export class ZenStore {
     const token = this.requireToken();
     const data = this.requireData();
     const transactions = this.transactionMap();
-    const now = Math.floor(Date.now() / 1000);
 
     const transactionUpdates = Object.entries(this.state.pendingCategoryChanges)
       .map(([txId, tagId]) => {
         const original = transactions.get(txId);
         if (!original) return null;
-        return { ...original, tag: tagId ? [tagId] : null, changed: now } as ZenTransaction;
+        return {
+          ...original,
+          tag: tagId ? [tagId] : null,
+          changed: nextChangedTimestamp(data.serverTimestamp, original.changed),
+        } as ZenTransaction;
       })
       .filter((t): t is ZenTransaction => t !== null);
 
     const assignments = this.manualAssignments();
     const targets = this.goalTargets();
 
-    await syncHiddenDataToZenmoney({
+    const changes = await syncHiddenDataToZenmoney({
       token,
       serverTimestamp: data.serverTimestamp,
       accounts: data.accounts,
@@ -407,6 +440,9 @@ export class ZenStore {
     this.state.pendingGoalTargets = {};
     await this.persistState();
     await this.sync();
+    // The sync does not echo our own push back — fold it in so the goal amounts
+    // computed below reflect what was just saved.
+    await this.applyLocal(changes);
 
     // A pinned category that stayed empty was only a placeholder — drop it, as
     // the web app does after a successful save.
@@ -432,13 +468,14 @@ export class ZenStore {
   async syncGoalReminderLinks(links: Record<string, string>): Promise<void> {
     const token = this.requireToken();
     const data = this.requireData();
-    await syncGoalRemindersToZenmoney({
+    const changes = await syncGoalRemindersToZenmoney({
       token,
       serverTimestamp: data.serverTimestamp,
       accounts: data.accounts,
       reminders: data.reminders,
       links,
     });
+    await this.applyLocal(changes);
   }
 
   // ------------------------------------------------------------------ goals

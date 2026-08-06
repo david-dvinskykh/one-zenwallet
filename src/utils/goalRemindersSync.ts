@@ -1,5 +1,6 @@
 import { pushZenmoneyDiff } from '../api/zenmoney';
 import type { ZenAccount, ZenReminder } from '../types/zenmoney';
+import { nextChangedTimestamp, type ZenLocalChanges } from './zenData';
 import {
   buildGoalRemindersComment,
   findGoalRemindersReminder,
@@ -15,14 +16,15 @@ interface SyncInput {
   links: Record<string, string>; // goal tag id -> reminder id (display-only link)
 }
 
-export async function syncGoalRemindersToZenmoney(input: SyncInput): Promise<void> {
+/** Returns the entities that were pushed, so callers can apply them locally. */
+export async function syncGoalRemindersToZenmoney(input: SyncInput): Promise<ZenLocalChanges> {
   const { token, serverTimestamp, accounts, reminders, links } = input;
   const userAccount = accounts.find((acc) => !acc.archive) ?? accounts[0];
   if (!userAccount) {
     throw new Error('No account available to infer user settings');
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = nextChangedTimestamp(serverTimestamp);
   let dataAccount = getDataAccount(accounts);
   const patch: Record<string, unknown> = {};
 
@@ -89,9 +91,9 @@ export async function syncGoalRemindersToZenmoney(input: SyncInput): Promise<voi
   const resolvedDataAccount = dataAccount!;
   const existingReminder = findGoalRemindersReminder(reminders, resolvedDataAccount.id);
   const reminderId = existingReminder?.id ?? crypto.randomUUID();
-  const reminderPatch = {
+  const reminderPatch: ZenReminder = {
     id: reminderId,
-    changed: now,
+    changed: nextChangedTimestamp(serverTimestamp, existingReminder?.changed),
     user: userAccount.user,
     incomeInstrument: resolvedDataAccount.instrument,
     incomeAccount: resolvedDataAccount.id,
@@ -114,4 +116,9 @@ export async function syncGoalRemindersToZenmoney(input: SyncInput): Promise<voi
   patch.reminder = [reminderPatch];
 
   await pushZenmoneyDiff(token, serverTimestamp, patch);
+
+  return {
+    accounts: patch.account ? [resolvedDataAccount] : undefined,
+    reminders: [reminderPatch],
+  };
 }

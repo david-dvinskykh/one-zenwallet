@@ -1,5 +1,6 @@
 import { pushZenmoneyDiff } from '../api/zenmoney';
 import type { ZenAccount, ZenReminder, ZenTransaction, GoalTarget } from '../types/zenmoney';
+import { nextChangedTimestamp, type ZenLocalChanges } from './zenData';
 import {
   buildManualAssignmentsComment,
   buildGoalTargetsComment,
@@ -19,14 +20,17 @@ interface SyncHiddenDataInput {
   transactionUpdates?: ZenTransaction[];
 }
 
-export async function syncHiddenDataToZenmoney(input: SyncHiddenDataInput): Promise<void> {
+/** Returns the entities that were pushed, so callers can apply them locally. */
+export async function syncHiddenDataToZenmoney(
+  input: SyncHiddenDataInput
+): Promise<ZenLocalChanges> {
   const { token, serverTimestamp, accounts, reminders, assignments, targets, transactionUpdates } = input;
   const userAccount = accounts.find((acc) => !acc.archive) ?? accounts[0];
   if (!userAccount) {
     throw new Error('No account available to infer user settings');
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = nextChangedTimestamp(serverTimestamp);
   let dataAccount = getDataAccount(accounts);
   const patch: Record<string, unknown> = {};
 
@@ -114,22 +118,31 @@ export async function syncHiddenDataToZenmoney(input: SyncHiddenDataInput): Prom
   const existingAssignmentsReminder = findManualAssignmentsReminder(reminders, resolvedAccount.id);
   const existingTargetsReminder = findGoalTargetsReminder(reminders, resolvedAccount.id);
 
-  patch.reminder = [
+  const pushedReminders: ZenReminder[] = [
     {
       ...baseReminder,
       id: existingAssignmentsReminder?.id ?? crypto.randomUUID(),
+      changed: nextChangedTimestamp(serverTimestamp, existingAssignmentsReminder?.changed),
       comment: buildManualAssignmentsComment(assignments),
     },
     {
       ...baseReminder,
       id: existingTargetsReminder?.id ?? crypto.randomUUID(),
+      changed: nextChangedTimestamp(serverTimestamp, existingTargetsReminder?.changed),
       comment: buildGoalTargetsComment(targets),
     },
   ];
+  patch.reminder = pushedReminders;
 
   if (transactionUpdates && transactionUpdates.length > 0) {
     patch.transaction = transactionUpdates;
   }
 
   await pushZenmoneyDiff(token, serverTimestamp, patch);
+
+  return {
+    accounts: patch.account ? [resolvedAccount] : undefined,
+    reminders: pushedReminders,
+    transactions: transactionUpdates?.length ? transactionUpdates : undefined,
+  };
 }

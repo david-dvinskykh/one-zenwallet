@@ -58,6 +58,8 @@ Manual goal assignments are persisted to ZenMoney itself via a synthetic archive
 
 Framework-free helpers used by both `GoalsPage` and the MCP server: period start / monthly-need / goal progress math, goal↔reminder maps and reminder entity builders, and the id-keyed `mergeZenData` snapshot merge.
 
+`zenData.ts` also owns the two rules that keep a push visible after it lands — see "Writing back to ZenMoney" below: `nextChangedTimestamp` (stamping) and `applyLocalChanges` (folding a push into the snapshot).
+
 ### Backup/Restore (`src/utils/backupRestore.ts`)
 
 `createZenBackupSnapshot` / `restoreZenBackup` are environment-agnostic; `createZenBackupAndDownload` and `restoreZenBackupFromFile` are the browser wrappers (download link, `File` input). Restore re-uploads all entities with remapped UUIDs, handles debt account matching, and pushes in dependency order (merchant → tag → budget → account → reminder → transaction).
@@ -73,6 +75,29 @@ Two npx entry points, both running `mcp-server/dist/server.js`:
 ### PWA
 
 `vite-plugin-pwa` with `autoUpdate` service worker. Base path is `/one-zenwallet/` (GitHub Pages). Manifest and SW are auto-generated.
+
+### Writing back to ZenMoney
+
+Two things are easy to get wrong when pushing entities, and both make a save look
+like it silently did nothing:
+
+- **Stamp `changed` with `nextChangedTimestamp(serverTimestamp, previous?)`, never
+  raw `Date.now()`.** ZenMoney keeps whatever `changed` the client sent and
+  resolves conflicts by keeping the newest one, so a device clock behind the
+  server loses the write outright. The helper also keeps the stamp ahead of the
+  last known `serverTimestamp`, which is what makes the entity appear in the next
+  incremental diff.
+- **Fold the pushed entities into the snapshot yourself.** The following `diff`
+  only returns entities newer than the requested `serverTimestamp` — it is not a
+  reliable echo of your own write. The web app calls `applyLocalChanges` from
+  `AppContext` after `refresh()`; the MCP server does it inside `ZenStore.push` /
+  `ZenStore.applyLocal`. Both `syncHiddenDataToZenmoney` and
+  `syncGoalRemindersToZenmoney` return a `ZenLocalChanges` for this. Skipping it
+  makes goal amounts snap back to their pre-save values, because `GoalsPage`
+  re-parses manual assignments from `data.reminders` whenever `data` changes.
+
+The MCP e2e fake (`mcp-server/test/store.e2e.ts`) models both behaviours — its
+clock deliberately runs ahead of the client's — so regressions here fail the test.
 
 ## Key Conventions
 

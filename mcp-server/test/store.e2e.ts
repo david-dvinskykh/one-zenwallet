@@ -57,25 +57,49 @@ const db: Record<string, Record<string, unknown>[]> = {
   user: [USER],
 };
 
-let serverTimestamp = 100;
+/**
+ * The fake mirrors the two ZenMoney behaviours that make writes easy to lose:
+ * a diff only returns entities whose `changed` is newer than the requested
+ * `serverTimestamp`, and the server keeps whatever `changed` the client sent
+ * rather than restamping it. Its clock is deliberately ahead of the client's —
+ * as a real one easily is — so anything stamped with `Date.now()` would be
+ * invisible to every later sync.
+ */
+const CLOCK_SKEW_SECONDS = 60;
+const serverTimestamp = Math.floor(Date.now() / 1000) + CLOCK_SKEW_SECONDS;
 
 globalThis.fetch = (async (_url: string, init: { body: string }) => {
   const payload = JSON.parse(init.body) as Record<string, unknown>;
+  const since = (payload.serverTimestamp as number) ?? 0;
+  const forceFetch = (payload.forceFetch as string[] | undefined) ?? [];
   const entityKeys = Object.keys(payload).filter(
     (key) => !['currentClientTimestamp', 'serverTimestamp', 'forceFetch'].includes(key)
   );
 
+  const pushed = new Set<string>();
   for (const key of entityKeys) {
-    serverTimestamp += 1;
     const table = (db[key] ??= []);
     for (const entity of payload[key] as Record<string, unknown>[]) {
+      pushed.add(`${key}:${entity.id}`);
       const index = table.findIndex((existing) => existing.id === entity.id);
       if (index >= 0) table[index] = { ...table[index], ...entity };
       else table.push(entity);
     }
   }
 
-  return { ok: true, json: async () => ({ serverTimestamp, ...structuredClone(db) }) };
+  const response: Record<string, unknown> = { serverTimestamp };
+  for (const [key, table] of Object.entries(db)) {
+    const wantsAll = since <= 0 || forceFetch.includes(key);
+    // Entities sent in this very request are never echoed back.
+    const rows = table.filter(
+      (entity) =>
+        !pushed.has(`${key}:${entity.id}`) &&
+        (wantsAll || (typeof entity.changed === 'number' && entity.changed > since))
+    );
+    if (rows.length > 0) response[key] = structuredClone(rows);
+  }
+
+  return { ok: true, json: async () => response };
 }) as never;
 
 const store = await ZenStore.load();
@@ -109,6 +133,7 @@ assert.equal(view.goals[0].amount, 200);
 await store.setGoalTarget('tag-car', { type: 'one_time', amount: 1000, date: '2026-12-01' });
 await store.pinGoalCategory('tag-trip');
 
+const timestampBeforeSave = store.requireData().serverTimestamp;
 const saved = await store.save();
 assert.equal(saved.assignments, 1);
 assert.equal(saved.targets, 1);
@@ -123,10 +148,11 @@ assert.deepEqual(store.cloudManualAssignments(), { 'tx-transfer': 'tag-car' });
 assert.deepEqual(store.cloudGoalTargets(), {
   'tag-car': { type: 'one_time', amount: 1000, date: '2026-12-01' },
 });
-assert.deepEqual(
-  db.transaction.find((tx) => tx.id === 'tx-expense')!.tag,
-  ['tag-car'],
-  'the category change reached ZenMoney'
+const savedExpense = db.transaction.find((tx) => tx.id === 'tx-expense')!;
+assert.deepEqual(savedExpense.tag, ['tag-car'], 'the category change reached ZenMoney');
+assert.ok(
+  (savedExpense.changed as number) > timestampBeforeSave,
+  'writes are stamped ahead of the last known server time, so the next diff returns them'
 );
 
 view = store.computeGoalsView();
@@ -143,6 +169,17 @@ assert.equal(
   store.goalReminderMap().get('tag-car')?.id,
   'rem-1',
   'a transfer reminder is linked through the hidden data map'
+);
+
+// --- a push shows up without waiting for a sync ----------------------------
+const remOne = store.requireData().reminders.find((reminder) => reminder.id === 'rem-1')!;
+await store.push({
+  reminder: [{ ...remOne, comment: 'pushed', changed: store.nextChanged(remOne.changed) }],
+});
+assert.equal(
+  store.requireData().reminders.find((reminder) => reminder.id === 'rem-1')?.comment,
+  'pushed',
+  'a push is folded into the snapshot straight away, not on the next sync'
 );
 
 // --- clearing --------------------------------------------------------------

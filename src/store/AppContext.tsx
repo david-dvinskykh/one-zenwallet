@@ -9,7 +9,13 @@ import {
 } from 'react';
 import { fetchZenmoneyDiff } from '../api/zenmoney';
 import * as storage from '../utils/storage';
-import { mergeZenData, toZenDataDiff, type ZenData } from '../utils/zenData';
+import {
+  applyLocalChanges as mergeLocalChanges,
+  mergeZenData,
+  toZenDataDiff,
+  type ZenData,
+  type ZenLocalChanges,
+} from '../utils/zenData';
 
 interface AppState {
   token: string | null;
@@ -21,6 +27,8 @@ interface AppState {
   logout: () => void;
   selectWallet: (id: string) => void;
   refresh: () => Promise<void>;
+  /** Folds entities we just pushed into the snapshot, without waiting for a sync. */
+  applyLocalChanges: (changes: ZenLocalChanges) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -122,6 +130,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await fetchData(token, ts);
   }, [token, fetchData]);
 
+  const applyLocalChanges = useCallback((changes: ZenLocalChanges) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const merged = mergeLocalChanges(prev, changes);
+      storage.setCachedData(merged);
+      return merged;
+    });
+  }, []);
+
   // Auto-fetch on startup once cache is loaded; incremental if cache exists with user, full otherwise.
   // Full fetch (ts=0) when no cache or cache lacks user entity — ensures monthStartDay is populated.
   // background=true only when cache had full data: silently merges without blocking UI.
@@ -145,6 +162,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         logout,
         selectWallet,
         refresh,
+        applyLocalChanges,
       }}
     >
       {children}

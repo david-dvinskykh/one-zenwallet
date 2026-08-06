@@ -124,7 +124,7 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       const tag = store.findTag(args.category);
       const { config, sourceInstrument } = resolveConfig(args);
 
-      const now = Math.floor(Date.now() / 1000);
+      const now = store.nextChanged();
       const reminder = buildGoalReminder({
         categoryId: tag.id,
         config,
@@ -137,7 +137,9 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
 
       const existing = store.goalReminderMap().get(tag.id);
       await store.push({
-        reminder: existing ? [{ ...existing, deleted: true, changed: now }, reminder] : [reminder],
+        reminder: existing
+          ? [{ ...existing, deleted: true, changed: store.nextChanged(existing.changed) }, reminder]
+          : [reminder],
       });
 
       if (config.type === 'transfer') {
@@ -176,7 +178,8 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       const updated = applyGoalReminderConfig(
         reminder,
         config,
-        config.type === 'transfer' ? sourceInstrument : null
+        config.type === 'transfer' ? sourceInstrument : null,
+        store.nextChanged(reminder.changed)
       );
 
       await store.push({ reminder: [updated] });
@@ -212,7 +215,7 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       if (!reminder) throw new ZenError(`No reminder with id ${reminderId}`);
 
       await store.push({
-        reminder: [{ ...reminder, deleted: true, changed: Math.floor(Date.now() / 1000) }],
+        reminder: [{ ...reminder, deleted: true, changed: store.nextChanged(reminder.changed) }],
       });
       await store.sync();
       return { unlinked: false, deleted: true, reminderId };
@@ -252,7 +255,7 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
 
       const tags = Array.from(new Set([...(reminder.tag ?? []), tag.id]));
       await store.push({
-        reminder: [{ ...reminder, tag: tags, changed: Math.floor(Date.now() / 1000) }],
+        reminder: [{ ...reminder, tag: tags, changed: store.nextChanged(reminder.changed) }],
       });
       await store.sync();
       return {

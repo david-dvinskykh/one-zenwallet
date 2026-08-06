@@ -30,6 +30,7 @@ import {
   type GoalReminderConfig,
 } from '../utils/goalReminders';
 import { pushZenmoneyDiff } from '../api/zenmoney';
+import { nextChangedTimestamp, type ZenLocalChanges } from '../utils/zenData';
 import type { Goal, GoalFeedItem, GoalTarget, ZenAccount, ZenReminder, ZenTransaction } from '../types/zenmoney';
 import './GoalsPage.css';
 
@@ -40,7 +41,7 @@ interface BulkSuggestion {
 }
 
 export function GoalsPage() {
-  const {token, data, selectedWalletId, selectWallet, logout, loading, refresh} =
+  const {token, data, selectedWalletId, selectWallet, logout, loading, refresh, applyLocalChanges} =
       useApp();
   const [expandedGoalId, setExpandedGoalId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'positive' | 'negative'>('all');
@@ -126,7 +127,7 @@ export function GoalsPage() {
       : walletAccount;
     if (!sourceAccount) return;
 
-    const now = Math.floor(Date.now() / 1000);
+    const now = nextChangedTimestamp(data.serverTimestamp);
     const newReminder = buildGoalReminder({
       categoryId,
       config,
@@ -138,10 +139,18 @@ export function GoalsPage() {
     });
 
     const existing = goalReminderMap.get(categoryId);
-    const reminderPatch = existing
-      ? [{ ...existing, deleted: true, changed: now }, newReminder]
+    const reminderPatch: ZenReminder[] = existing
+      ? [
+          {
+            ...existing,
+            deleted: true,
+            changed: nextChangedTimestamp(data.serverTimestamp, existing.changed),
+          },
+          newReminder,
+        ]
       : [newReminder];
     await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: reminderPatch });
+    const changes: ZenLocalChanges = { reminders: reminderPatch };
 
     // The tag set above will not persist on a transfer reminder, so also record
     // the link in the goalReminders map so the goal recognizes it.
@@ -151,15 +160,18 @@ export function GoalsPage() {
         ...parseGoalRemindersFromReminders(data.reminders, dataAccountId),
         [categoryId]: newReminder.id,
       };
-      await syncGoalRemindersToZenmoney({
+      const linkChanges = await syncGoalRemindersToZenmoney({
         token,
         serverTimestamp: data.serverTimestamp,
         accounts: data.accounts,
         reminders: data.reminders,
         links,
       });
+      changes.accounts = linkChanges.accounts;
+      changes.reminders = [...reminderPatch, ...(linkChanges.reminders ?? [])];
     }
     await refresh();
+    applyLocalChanges(changes);
   };
 
   const handleDeleteReminder = async (reminderId: string) => {
@@ -173,7 +185,7 @@ export function GoalsPage() {
     if (linkedTag) {
       const rest = { ...goalReminders };
       delete rest[linkedTag];
-      await syncGoalRemindersToZenmoney({
+      const changes = await syncGoalRemindersToZenmoney({
         token,
         serverTimestamp: data.serverTimestamp,
         accounts: data.accounts,
@@ -181,16 +193,20 @@ export function GoalsPage() {
         links: rest,
       });
       await refresh();
+      applyLocalChanges(changes);
       return;
     }
 
-    const now = Math.floor(Date.now() / 1000);
     const reminder = data.reminders.find((r) => r.id === reminderId);
     if (!reminder) return;
-    await pushZenmoneyDiff(token, data.serverTimestamp, {
-      reminder: [{ ...reminder, deleted: true, changed: now }],
-    });
+    const deleted: ZenReminder = {
+      ...reminder,
+      deleted: true,
+      changed: nextChangedTimestamp(data.serverTimestamp, reminder.changed),
+    };
+    await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: [deleted] });
     await refresh();
+    applyLocalChanges({ reminders: [deleted] });
   };
 
   const handleUpdateReminder = async (reminderId: string, config: GoalReminderConfig) => {
@@ -204,7 +220,7 @@ export function GoalsPage() {
       : null;
     if (isTransfer && !sourceAccount) return;
 
-    const now = Math.floor(Date.now() / 1000);
+    const now = nextChangedTimestamp(data.serverTimestamp, reminder.changed);
     const updated = applyGoalReminderConfig(
       reminder,
       config,
@@ -213,13 +229,13 @@ export function GoalsPage() {
     );
     await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: [updated] });
     await refresh();
+    applyLocalChanges({ reminders: [updated] });
   };
 
   const handleLinkReminder = async (reminderId: string, categoryId: string) => {
     if (!token || !data) return;
     const reminder = data.reminders.find((r) => r.id === reminderId);
     if (!reminder) return;
-    const now = Math.floor(Date.now() / 1000);
 
     // ZenMoney does not allow categories/tags on transfer reminders, so linking a
     // transfer is persisted via the goalReminders map (goal tag -> reminder id).
@@ -230,7 +246,7 @@ export function GoalsPage() {
         ...parseGoalRemindersFromReminders(data.reminders, dataAccountId),
         [categoryId]: reminder.id,
       };
-      await syncGoalRemindersToZenmoney({
+      const changes = await syncGoalRemindersToZenmoney({
         token,
         serverTimestamp: data.serverTimestamp,
         accounts: data.accounts,
@@ -238,14 +254,19 @@ export function GoalsPage() {
         links,
       });
       await refresh();
+      applyLocalChanges(changes);
       return;
     }
 
     const updatedTags = Array.from(new Set([...(reminder.tag ?? []), categoryId]));
-    await pushZenmoneyDiff(token, data.serverTimestamp, {
-      reminder: [{ ...reminder, tag: updatedTags, changed: now }],
-    });
+    const updated: ZenReminder = {
+      ...reminder,
+      tag: updatedTags,
+      changed: nextChangedTimestamp(data.serverTimestamp, reminder.changed),
+    };
+    await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: [updated] });
     await refresh();
+    applyLocalChanges({ reminders: [updated] });
   };
 
   const filteredFeed = useMemo(() => {
@@ -525,16 +546,19 @@ export function GoalsPage() {
     setSaveState('saving');
     setSaveError(null);
     try {
-      const now = Math.floor(Date.now() / 1000);
       const transactionUpdates = Object.entries(pendingCategoryChanges)
           .map(([txId, tagId]) => {
             const original = transactionMap.get(txId);
             if (!original) return null;
-            return {...original, tag: tagId ? [tagId] : null, changed: now} as ZenTransaction;
+            return {
+              ...original,
+              tag: tagId ? [tagId] : null,
+              changed: nextChangedTimestamp(data.serverTimestamp, original.changed),
+            } as ZenTransaction;
           })
           .filter((t): t is ZenTransaction => t !== null);
 
-      await syncHiddenDataToZenmoney({
+      const changes = await syncHiddenDataToZenmoney({
         token,
         serverTimestamp: data.serverTimestamp,
         accounts: data.accounts,
@@ -544,6 +568,11 @@ export function GoalsPage() {
         transactionUpdates: transactionUpdates.length > 0 ? transactionUpdates : undefined,
       });
       await refresh();
+      // The incremental sync above does not echo our own push back, so the new
+      // categories (and the assignments reminder the goals are re-parsed from)
+      // have to be folded in explicitly — otherwise goal amounts snap back to
+      // their pre-save values.
+      applyLocalChanges(changes);
       setPendingCategoryChanges({});
 
       const emptyPinnedIds = goals
