@@ -52,7 +52,10 @@ export function buildGoalReminder(params: {
     incomeInstrument: walletInstrument,
     outcome: isTransfer ? config.amount : 0,
     outcomeInstrument: sourceInstrument,
-    tag: [categoryId],
+    // ZenMoney rejects a reminder that carries a tag on a transfer. Transfers
+    // are associated to their goal through the `oneZenwalletGoalReminders` map
+    // instead — see `buildGoalReminderMap`.
+    tag: isTransfer ? null : [categoryId],
     merchant: null,
     comment: null,
     payee: null,
@@ -195,6 +198,10 @@ export function applyGoalReminderConfig(
     outcomeAccount: isTransfer ? config.sourceAccountId : reminder.incomeAccount,
     outcomeInstrument:
       isTransfer && sourceInstrument !== null ? sourceInstrument : reminder.incomeInstrument,
+    // Turning a tagged income reminder into a transfer has to drop the tag —
+    // ZenMoney rejects the push otherwise. Callers keep the goal association by
+    // writing the `oneZenwalletGoalReminders` link instead.
+    tag: isTransfer ? null : reminder.tag,
     points: [config.dayOfMonth],
     startDate: computeReminderStartDate(config.dayOfMonth, today),
     changed: now,

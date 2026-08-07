@@ -19,7 +19,12 @@ async function callZenmoneyDiff(
     if (response.status === 401 || response.status === 403) {
       throw new Error('Invalid or expired token');
     }
-    throw new Error(`API error: ${response.status}`);
+    // ZenMoney explains a rejected entity in the body; without it a failed push
+    // is indistinguishable from one that silently did nothing.
+    const detail = await response.text().catch(() => '');
+    throw new Error(
+      `API error: ${response.status}${detail ? ` — ${detail.trim().slice(0, 300)}` : ''}`
+    );
   }
 
   return response.json();

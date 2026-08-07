@@ -118,14 +118,38 @@ export function GoalsPage() {
     });
   }, [data, goals, goalReminderMap, transactionMap, markerToReminderId]);
 
-  const handleCreateReminder = async (categoryId: string, config: GoalReminderConfig) => {
+  /**
+   * Reminder edits push straight to ZenMoney rather than going through the
+   * "Save Data" button, so they need their own error reporting — a rejected
+   * push used to leave no trace at all. Returns false when the write failed.
+   */
+  const runZenWrite = async (what: string, action: () => Promise<void>): Promise<boolean> => {
+    setSaveError(null);
+    setSaveState('saving');
+    try {
+      await action();
+      setSaveState('idle');
+      return true;
+    } catch (e) {
+      setSaveState('error');
+      setSaveError(`${what}: ${e instanceof Error ? e.message : 'unknown error'}`);
+      return false;
+    }
+  };
+
+  const handleCreateReminder = (categoryId: string, config: GoalReminderConfig) =>
+    runZenWrite('Failed to create the reminder', async () => {
+      await createReminder(categoryId, config);
+    });
+
+  const createReminder = async (categoryId: string, config: GoalReminderConfig) => {
     if (!token || !data || !selectedWalletId) return;
     const walletAccount = data.accounts.find((a) => a.id === selectedWalletId);
-    if (!walletAccount) return;
+    if (!walletAccount) throw new Error('The selected wallet is no longer available');
     const sourceAccount = config.type === 'transfer'
       ? data.accounts.find((a) => a.id === config.sourceAccountId)
       : walletAccount;
-    if (!sourceAccount) return;
+    if (!sourceAccount) throw new Error('Pick the account the transfer comes from');
 
     const now = nextChangedTimestamp(data.serverTimestamp);
     const newReminder = buildGoalReminder({
@@ -174,7 +198,12 @@ export function GoalsPage() {
     applyLocalChanges(changes);
   };
 
-  const handleDeleteReminder = async (reminderId: string) => {
+  const handleDeleteReminder = (reminderId: string) =>
+    runZenWrite('Failed to delete the reminder', async () => {
+      await deleteReminder(reminderId);
+    });
+
+  const deleteReminder = async (reminderId: string) => {
     if (!token || !data) return;
     const dataAccountId = getDataAccount(data.accounts)?.id ?? null;
     const goalReminders = parseGoalRemindersFromReminders(data.reminders, dataAccountId);
@@ -198,7 +227,7 @@ export function GoalsPage() {
     }
 
     const reminder = data.reminders.find((r) => r.id === reminderId);
-    if (!reminder) return;
+    if (!reminder) throw new Error('That reminder no longer exists');
     const deleted: ZenReminder = {
       ...reminder,
       deleted: true,
@@ -209,33 +238,78 @@ export function GoalsPage() {
     applyLocalChanges({ reminders: [deleted] });
   };
 
-  const handleUpdateReminder = async (reminderId: string, config: GoalReminderConfig) => {
+  const handleUpdateReminder = (
+    reminderId: string,
+    config: GoalReminderConfig,
+    categoryId: string
+  ) =>
+    runZenWrite('Failed to save the reminder', async () => {
+      await updateReminder(reminderId, config, categoryId);
+    });
+
+  const updateReminder = async (
+    reminderId: string,
+    config: GoalReminderConfig,
+    categoryId: string
+  ) => {
     if (!token || !data) return;
     const reminder = data.reminders.find((r) => r.id === reminderId);
-    if (!reminder) return;
+    if (!reminder) throw new Error('That reminder no longer exists');
 
     const isTransfer = config.type === 'transfer';
     const sourceAccount = isTransfer
       ? data.accounts.find((a) => a.id === config.sourceAccountId)
       : null;
-    if (isTransfer && !sourceAccount) return;
+    if (isTransfer && !sourceAccount) throw new Error('Pick the account the transfer comes from');
 
     const now = nextChangedTimestamp(data.serverTimestamp, reminder.changed);
-    const updated = applyGoalReminderConfig(
+    const base = applyGoalReminderConfig(
       reminder,
       config,
       sourceAccount?.instrument ?? null,
       now
     );
+    // An income reminder carries its goal as a tag; a transfer cannot, so it is
+    // associated through the goalReminders map instead. Switching type has to
+    // move the association across, or the reminder drops off the goal entirely.
+    const updated: ZenReminder = isTransfer
+      ? base
+      : { ...base, tag: Array.from(new Set([...(base.tag ?? []), categoryId])) };
+
     await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: [updated] });
+    const changes: ZenLocalChanges = { reminders: [updated] };
+
+    const dataAccountId = getDataAccount(data.accounts)?.id ?? null;
+    const currentLinks = parseGoalRemindersFromReminders(data.reminders, dataAccountId);
+    const isLinked = currentLinks[categoryId] === reminderId;
+    if (isTransfer !== isLinked) {
+      const links = { ...currentLinks };
+      if (isTransfer) links[categoryId] = reminderId;
+      else delete links[categoryId];
+      const linkChanges = await syncGoalRemindersToZenmoney({
+        token,
+        serverTimestamp: data.serverTimestamp,
+        accounts: data.accounts,
+        reminders: data.reminders,
+        links,
+      });
+      changes.accounts = linkChanges.accounts;
+      changes.reminders = [updated, ...(linkChanges.reminders ?? [])];
+    }
+
     await refresh();
-    applyLocalChanges({ reminders: [updated] });
+    applyLocalChanges(changes);
   };
 
-  const handleLinkReminder = async (reminderId: string, categoryId: string) => {
+  const handleLinkReminder = (reminderId: string, categoryId: string) =>
+    runZenWrite('Failed to link the reminder', async () => {
+      await linkReminder(reminderId, categoryId);
+    });
+
+  const linkReminder = async (reminderId: string, categoryId: string) => {
     if (!token || !data) return;
     const reminder = data.reminders.find((r) => r.id === reminderId);
-    if (!reminder) return;
+    if (!reminder) throw new Error('That reminder no longer exists');
 
     // ZenMoney does not allow categories/tags on transfer reminders, so linking a
     // transfer is persisted via the goalReminders map (goal tag -> reminder id).
@@ -587,7 +661,9 @@ export function GoalsPage() {
       setSaveState('saved');
     } catch (e) {
       setSaveState('error');
-      setSaveError(e instanceof Error ? e.message : 'Failed to save data');
+      setSaveError(
+        `Failed to save to [One-Zenwallet Data]: ${e instanceof Error ? e.message : 'unknown error'}`
+      );
     }
   };
 
@@ -628,9 +704,7 @@ export function GoalsPage() {
               <p className="save-banner save-ok">Saved to [One-Zenwallet Data]</p>
           )}
           {saveState === 'error' && (
-              <p className="save-banner save-error">
-                Failed to save to [One-Zenwallet Data]: {saveError}
-              </p>
+              <p className="save-banner save-error">{saveError}</p>
           )}
           <div className="goals-summary">
             <div className="goals-summary-total">
@@ -1034,10 +1108,14 @@ function GoalCard({
   monthStartDay: number;
   existingReminder: ZenReminder | null;
   suggestedReminder: ZenReminder | null;
-  onCreateReminder: (categoryId: string, config: GoalReminderConfig) => Promise<void>;
-  onUpdateReminder: (reminderId: string, config: GoalReminderConfig) => Promise<void>;
-  onDeleteReminder: (reminderId: string) => Promise<void>;
-  onLinkReminder: (reminderId: string, categoryId: string) => Promise<void>;
+  onCreateReminder: (categoryId: string, config: GoalReminderConfig) => Promise<boolean>;
+  onUpdateReminder: (
+    reminderId: string,
+    config: GoalReminderConfig,
+    categoryId: string
+  ) => Promise<boolean>;
+  onDeleteReminder: (reminderId: string) => Promise<boolean>;
+  onLinkReminder: (reminderId: string, categoryId: string) => Promise<boolean>;
 }) {
   const [reminderType, setReminderType] = useState<'transfer' | 'income'>('transfer');
   const [reminderSourceId, setReminderSourceId] = useState('');
@@ -1281,13 +1359,18 @@ function GoalCard({
                       onClick={async () => {
                         setReminderLoading(true);
                         try {
-                          await onUpdateReminder(existingReminder.id, {
-                            type: reminderType,
-                            sourceAccountId: reminderSourceId,
-                            dayOfMonth: reminderDay,
-                            amount: reminderAmount,
-                          });
-                          setReminderEditing(false);
+                          const saved = await onUpdateReminder(
+                            existingReminder.id,
+                            {
+                              type: reminderType,
+                              sourceAccountId: reminderSourceId,
+                              dayOfMonth: reminderDay,
+                              amount: reminderAmount,
+                            },
+                            goal.categoryId
+                          );
+                          // Keep the form open on failure so the edit is not lost.
+                          if (saved) setReminderEditing(false);
                         } finally { setReminderLoading(false); }
                       }}
                     >

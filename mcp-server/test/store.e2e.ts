@@ -7,6 +7,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ZenStore } from '../src/store';
+import { buildGoalReminder } from '../../src/utils/goalReminders';
 
 // Never touch a real developer's session state.
 const stateDir = path.join(os.tmpdir(), `one-zenwallet-mcp-test-${process.pid}`);
@@ -75,6 +76,19 @@ globalThis.fetch = (async (_url: string, init: { body: string }) => {
   const entityKeys = Object.keys(payload).filter(
     (key) => !['currentClientTimestamp', 'serverTimestamp', 'forceFetch'].includes(key)
   );
+
+  // ZenMoney allows a category only on income/expense reminders, and rejects the
+  // whole request when a transfer carries one.
+  for (const entity of (payload.reminder ?? []) as Record<string, unknown>[]) {
+    const isTransfer = entity.incomeAccount !== entity.outcomeAccount;
+    if (isTransfer && Array.isArray(entity.tag) && entity.tag.length > 0) {
+      return {
+        ok: false,
+        status: 400,
+        text: async () => 'tag is not allowed on a transfer reminder',
+      };
+    }
+  }
 
   const pushed = new Set<string>();
   for (const key of entityKeys) {
@@ -180,6 +194,37 @@ assert.equal(
   store.requireData().reminders.find((reminder) => reminder.id === 'rem-1')?.comment,
   'pushed',
   'a push is folded into the snapshot straight away, not on the next sync'
+);
+
+// --- a recurring transfer reminder reaches ZenMoney ------------------------
+const transferReminder = buildGoalReminder({
+  categoryId: 'tag-trip',
+  config: { type: 'transfer', sourceAccountId: 'salary-1', dayOfMonth: 5, amount: 250 },
+  walletId: 'wallet-1',
+  walletInstrument: 1,
+  sourceInstrument: 1,
+  userId: 7,
+  now: store.nextChanged(),
+});
+assert.equal(transferReminder.tag, null, 'a transfer reminder carries no category');
+
+await assert.rejects(
+  store.push({ reminder: [{ ...transferReminder, id: 'rem-rejected', tag: ['tag-trip'] }] }),
+  /API error: 400/,
+  'ZenMoney refuses a category on a transfer reminder, and the failure surfaces'
+);
+
+await store.push({ reminder: [transferReminder] });
+await store.syncGoalReminderLinks({ ...store.goalReminderLinks(), 'tag-trip': transferReminder.id });
+await store.sync();
+assert.ok(
+  db.reminder.some((reminder) => reminder.id === transferReminder.id),
+  'the recurring transfer was saved to ZenMoney'
+);
+assert.equal(
+  store.goalReminderMap().get('tag-trip')?.id,
+  transferReminder.id,
+  'and the goal picks it up through the links map'
 );
 
 // --- clearing --------------------------------------------------------------

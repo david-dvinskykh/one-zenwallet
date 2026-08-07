@@ -175,16 +175,33 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       if (!reminder) throw new ZenError(`No reminder with id ${args.reminderId}`);
 
       const { config, sourceInstrument } = resolveConfig(args);
-      const updated = applyGoalReminderConfig(
+      const isTransfer = config.type === 'transfer';
+      const links = store.goalReminderLinks();
+      const linkedCategoryId = Object.entries(links).find(([, rid]) => rid === reminder.id)?.[0];
+      const categoryId = linkedCategoryId ?? reminder.tag?.[0] ?? null;
+
+      const base = applyGoalReminderConfig(
         reminder,
         config,
-        config.type === 'transfer' ? sourceInstrument : null,
+        isTransfer ? sourceInstrument : null,
         store.nextChanged(reminder.changed)
       );
+      // A transfer cannot carry its goal as a tag, so the association lives in
+      // the goalReminders map instead. Switching type has to move it across.
+      const updated =
+        !isTransfer && categoryId
+          ? { ...base, tag: Array.from(new Set([...(base.tag ?? []), categoryId])) }
+          : base;
 
       await store.push({ reminder: [updated] });
+      if (categoryId && isTransfer !== (links[categoryId] === reminder.id)) {
+        const next = { ...links };
+        if (isTransfer) next[categoryId] = reminder.id;
+        else delete next[categoryId];
+        await store.syncGoalReminderLinks(next);
+      }
       await store.sync();
-      return { updated: describeReminder(updated, config.type === 'transfer') };
+      return { updated: describeReminder(updated, isTransfer) };
     })
   );
 

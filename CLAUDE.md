@@ -103,7 +103,7 @@ clock deliberately runs ahead of the client's — so regressions here fail the t
 
 - `ZenTag` = budget category in ZenMoney terminology; used interchangeably with "goal category" in this app.
 - `ZenReminder` records on the hidden data account are repurposed as a key-value store (not actual reminders). Formats: `linkedAccounts` (account→tag map), `oneZenwalletManualGoals` (transaction→tag map), `oneZenwalletGoalTargets` (tag→GoalTarget), and `oneZenwalletGoalReminders` (goal tag→reminder id, display-only link for transfer reminders).
-- ZenMoney does **not** allow categories/tags on transfer reminders (only income/expense). Real recurring transfer reminders are associated to a goal via the `oneZenwalletGoalReminders` map, not by tagging them.
+- ZenMoney does **not** allow categories/tags on transfer reminders (only income/expense) — it rejects the whole push with a 400, it does not quietly drop the tag. `buildGoalReminder` and `applyGoalReminderConfig` therefore force `tag: null` whenever the config is a transfer, and callers keep the goal association by writing the `oneZenwalletGoalReminders` map instead. Switching a reminder between income and transfer has to move the association between the tag and that map.
 - A transaction's `reminderMarker` field is a `ReminderMarker` entity id (one per occurrence), **not** a `Reminder` id. Resolve via the `reminderMarker` table's `reminder` field to get the parent reminder.
 - `mergeZenData` (`src/utils/zenData.ts`) uses id-keyed Maps so repeated syncs are idempotent.
 - Install with `--legacy-peer-deps` because vite-plugin-pwa peer dep declarations lag behind React 19.
