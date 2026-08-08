@@ -1,0 +1,40 @@
+.version-badge {
+  position: fixed;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #2f2f4a;
+  border-radius: 999px;
+  background: rgba(26, 26, 46, 0.85);
+  color: #9a9ab8;
+  font-size: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  backdrop-filter: blur(4px);
+}
+
+.version-badge-text {
+  user-select: text;
+}
+
+.version-badge-update {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid #3a3a5c;
+  border-radius: 999px;
+  background: #2a2a45;
+  color: #e8e8f0;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.version-badge-update:hover {
+  background: #343454;
+}
+
+.version-badge-update:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

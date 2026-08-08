@@ -74,7 +74,26 @@ Two npx entry points, both running `mcp-server/dist/server.js`:
 
 ### PWA
 
-`vite-plugin-pwa` with `autoUpdate` service worker. Base path is `/one-zenwallet/` (GitHub Pages). Manifest and SW are auto-generated.
+`vite-plugin-pwa` with `autoUpdate` service worker. Base path is `/one-zenwallet/` (GitHub Pages). Manifest and SW are auto-generated. Pushing to `main` deploys via `.github/workflows/deploy.yml`; `npm run deploy` is the manual fallback.
+
+`VersionBadge` (`src/components/`) pins the running build to the corner of every
+page as `<package version>+<git short sha>`, injected by `vite.config.ts` into
+`__APP_VERSION__` / `__BUILD_TIME__`. Its Update button calls `forceUpdateApp`
+(`src/appVersion.ts`), which unregisters the service worker, drops every cache
+and reloads with a cache-busting query. Reach for it first when a deployed fix
+appears not to have landed — the version on screen says whether the user is even
+running it. `src/appVersion.ts` sits outside `src/utils` on purpose: that
+directory is compiled into the MCP server, which has neither the Vite globals
+nor `window`.
+
+### Reporting write failures
+
+Reminder create/update/delete/link push straight to ZenMoney instead of going
+through "Save Data", so they report themselves through `StatusDialog`
+(`src/components/`) via `runZenWrite` in `GoalsPage`. It shows the API's own
+message verbatim — a rejected entity used to leave nothing on screen at all.
+Keep new direct-push actions on `runZenWrite` rather than adding silent
+`return` guards; a guard that cannot explain itself reads as a save that worked.
 
 ### Writing back to ZenMoney
 

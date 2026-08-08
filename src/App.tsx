@@ -2,8 +2,9 @@ import { useApp } from './store/AppContext';
 import LoginPage from './pages/LoginPage';
 import WalletSelectPage from './pages/WalletSelectPage';
 import {GoalsPage} from './pages/GoalsPage';
+import { VersionBadge } from './components/VersionBadge';
 
-export default function App() {
+function CurrentPage() {
   const { token, selectedWalletId, data } = useApp();
 
   if (!token) {
@@ -23,4 +24,14 @@ export default function App() {
   }
 
   return <GoalsPage />;
+}
+
+export default function App() {
+  return (
+    <>
+      <CurrentPage />
+      {/* On every page: a stale cache can strand any of them. */}
+      <VersionBadge />
+    </>
+  );
 }

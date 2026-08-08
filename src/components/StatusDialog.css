@@ -1,0 +1,77 @@
+.status-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.status-dialog {
+  width: 100%;
+  max-width: 30rem;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid #2f2f4a;
+  background: #1f1f35;
+  color: #e8e8f0;
+  box-shadow: 0 1.25rem 3rem rgba(0, 0, 0, 0.45);
+}
+
+.status-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.status-dialog.saving .status-dialog-title { color: #b9b9d4; }
+.status-dialog.ok .status-dialog-title { color: #58cc8a; }
+.status-dialog.error .status-dialog-title { color: #ff7676; }
+
+.status-dialog-detail {
+  margin: 0.5rem 0 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #15152a;
+  color: #d6d6e6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.status-dialog-hint {
+  margin: 0.75rem 0 0;
+  color: #9a9ab8;
+  font-size: 0.8rem;
+}
+
+.status-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.status-dialog-actions button {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid #3a3a5c;
+  border-radius: 0.5rem;
+  background: #2a2a45;
+  color: #e8e8f0;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.status-dialog-actions button:hover {
+  background: #343454;
+}

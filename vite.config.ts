@@ -1,9 +1,29 @@
+import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const { version } = JSON.parse(readFileSync('./package.json', 'utf8')) as { version: string }
+
+// The build identifies itself in the UI so a stale service worker is obvious:
+// if the version on screen is not the one that was deployed, the app is cached.
+const commit = (() => {
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim()
+  } catch {
+    return 'dev'
+  }
+})()
+
 export default defineConfig({
   base: '/one-zenwallet/',
+  define: {
+    __APP_VERSION__: JSON.stringify(`${version}+${commit}`),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     react(),
     VitePWA({

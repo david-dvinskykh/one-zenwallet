@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp } from '../store/AppContext';
 import { computeGoals, isTransferTransaction } from '../utils/goals';
 import {
@@ -31,6 +31,7 @@ import {
 } from '../utils/goalReminders';
 import { pushZenmoneyDiff } from '../api/zenmoney';
 import { nextChangedTimestamp, type ZenLocalChanges } from '../utils/zenData';
+import { StatusDialog, type WriteStatus } from '../components/StatusDialog';
 import type { Goal, GoalFeedItem, GoalTarget, ZenAccount, ZenReminder, ZenTransaction } from '../types/zenmoney';
 import './GoalsPage.css';
 
@@ -59,6 +60,10 @@ export function GoalsPage() {
   const [highlightedTransactionId, setHighlightedTransactionId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [writeStatus, setWriteStatus] = useState<WriteStatus | null>(null);
+
+  // Stable, so the dialog's auto-dismiss timer is not restarted by every render.
+  const closeWriteStatus = useCallback(() => setWriteStatus(null), []);
 
   const selectedAccount = useMemo(
       () => data?.accounts.find((a) => a.id === selectedWalletId),
@@ -120,25 +125,27 @@ export function GoalsPage() {
 
   /**
    * Reminder edits push straight to ZenMoney rather than going through the
-   * "Save Data" button, so they need their own error reporting — a rejected
-   * push used to leave no trace at all. Returns false when the write failed.
+   * "Save Data" button, so they report their own outcome in a dialog — a
+   * rejected push used to leave no trace at all. Returns false when it failed.
    */
-  const runZenWrite = async (what: string, action: () => Promise<void>): Promise<boolean> => {
-    setSaveError(null);
-    setSaveState('saving');
+  const runZenWrite = async (label: string, action: () => Promise<void>): Promise<boolean> => {
+    setWriteStatus({ label, state: 'saving' });
     try {
       await action();
-      setSaveState('idle');
+      setWriteStatus({ label, state: 'ok' });
       return true;
     } catch (e) {
-      setSaveState('error');
-      setSaveError(`${what}: ${e instanceof Error ? e.message : 'unknown error'}`);
+      setWriteStatus({
+        label,
+        state: 'error',
+        detail: e instanceof Error ? e.message : String(e),
+      });
       return false;
     }
   };
 
   const handleCreateReminder = (categoryId: string, config: GoalReminderConfig) =>
-    runZenWrite('Failed to create the reminder', async () => {
+    runZenWrite('Create reminder', async () => {
       await createReminder(categoryId, config);
     });
 
@@ -151,6 +158,11 @@ export function GoalsPage() {
       : walletAccount;
     if (!sourceAccount) throw new Error('Pick the account the transfer comes from');
 
+    // ZenMoney rejects an entity without a real owner, and a cache written
+    // before the user entity was fetched has none.
+    const userId = data.user?.id;
+    if (!userId) throw new Error('User profile not loaded yet — refresh and try again');
+
     const now = nextChangedTimestamp(data.serverTimestamp);
     const newReminder = buildGoalReminder({
       categoryId,
@@ -158,7 +170,7 @@ export function GoalsPage() {
       walletId: selectedWalletId,
       walletInstrument: walletAccount.instrument,
       sourceInstrument: sourceAccount.instrument,
-      userId: data.user?.id ?? 0,
+      userId,
       now,
     });
 
@@ -199,7 +211,7 @@ export function GoalsPage() {
   };
 
   const handleDeleteReminder = (reminderId: string) =>
-    runZenWrite('Failed to delete the reminder', async () => {
+    runZenWrite('Delete reminder', async () => {
       await deleteReminder(reminderId);
     });
 
@@ -243,7 +255,7 @@ export function GoalsPage() {
     config: GoalReminderConfig,
     categoryId: string
   ) =>
-    runZenWrite('Failed to save the reminder', async () => {
+    runZenWrite('Save reminder', async () => {
       await updateReminder(reminderId, config, categoryId);
     });
 
@@ -302,7 +314,7 @@ export function GoalsPage() {
   };
 
   const handleLinkReminder = (reminderId: string, categoryId: string) =>
-    runZenWrite('Failed to link the reminder', async () => {
+    runZenWrite('Link reminder', async () => {
       await linkReminder(reminderId, categoryId);
     });
 
@@ -940,6 +952,8 @@ export function GoalsPage() {
             )}
           </div>
         </section>
+
+        <StatusDialog status={writeStatus} onClose={closeWriteStatus} />
       </div>
   );
 }
