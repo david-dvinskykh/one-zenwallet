@@ -29,6 +29,21 @@ export function computeReminderStartDate(dayOfMonth: number, today: Date = new D
   return `${startYear}-${String(startMonth).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
 }
 
+/**
+ * A funding transfer has to come from somewhere other than the goal wallet —
+ * with both sides equal ZenMoney stores it as plain income, and the goal stops
+ * being funded from anywhere.
+ */
+export function assertTransferSource(config: GoalReminderConfig, walletId: string): void {
+  if (config.type !== 'transfer') return;
+  if (!config.sourceAccountId) {
+    throw new Error('Pick the account the transfer comes from');
+  }
+  if (config.sourceAccountId === walletId) {
+    throw new Error('A transfer must come from an account other than the goal wallet');
+  }
+}
+
 export function buildGoalReminder(params: {
   categoryId: string;
   config: GoalReminderConfig;
@@ -43,6 +58,7 @@ export function buildGoalReminder(params: {
   const { categoryId, config, walletId, walletInstrument, sourceInstrument, userId } = params;
   const now = params.now ?? Math.floor(Date.now() / 1000);
   const isTransfer = config.type === 'transfer';
+  assertTransferSource(config, walletId);
 
   return {
     id: params.id ?? crypto.randomUUID(),
@@ -186,18 +202,34 @@ export function findSameReminderUnassignedTransactions(params: {
   return { reminderMarker: marker, reminderId, transactionIds };
 }
 
+export interface GoalReminderTarget {
+  /** The wallet the goal is tracked in — a funding transfer must land here. */
+  walletId: string;
+  walletInstrument: number;
+  /** Currency of `config.sourceAccountId`; null for a non-transfer. */
+  sourceInstrument: number | null;
+}
+
 export function applyGoalReminderConfig(
   reminder: ZenReminder,
   config: GoalReminderConfig,
-  sourceInstrument: number | null,
+  target: GoalReminderTarget,
   now: number = Math.floor(Date.now() / 1000),
   today?: Date
 ): ZenReminder {
   const isTransfer = config.type === 'transfer';
+  const { walletId, walletInstrument, sourceInstrument } = target;
+  assertTransferSource(config, walletId);
   return {
     ...reminder,
     income: config.amount,
     outcome: isTransfer ? config.amount : 0,
+    // A funding transfer always runs source account -> goal wallet. The income
+    // side has to be set explicitly: a reminder that was linked rather than
+    // created here starts out pointing at some other account, and leaving it
+    // alone would keep sending the money there.
+    incomeAccount: isTransfer ? walletId : reminder.incomeAccount,
+    incomeInstrument: isTransfer ? walletInstrument : reminder.incomeInstrument,
     outcomeAccount: isTransfer ? config.sourceAccountId : reminder.incomeAccount,
     outcomeInstrument:
       isTransfer && sourceInstrument !== null ? sourceInstrument : reminder.incomeInstrument,

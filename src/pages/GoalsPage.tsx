@@ -264,9 +264,12 @@ export function GoalsPage() {
     config: GoalReminderConfig,
     categoryId: string
   ) => {
-    if (!token || !data) return;
+    if (!token || !data || !selectedWalletId) return;
     const reminder = data.reminders.find((r) => r.id === reminderId);
     if (!reminder) throw new Error('That reminder no longer exists');
+
+    const walletAccount = data.accounts.find((a) => a.id === selectedWalletId);
+    if (!walletAccount) throw new Error('The selected wallet is no longer available');
 
     const isTransfer = config.type === 'transfer';
     const sourceAccount = isTransfer
@@ -278,7 +281,11 @@ export function GoalsPage() {
     const base = applyGoalReminderConfig(
       reminder,
       config,
-      sourceAccount?.instrument ?? null,
+      {
+        walletId: selectedWalletId,
+        walletInstrument: walletAccount.instrument,
+        sourceInstrument: sourceAccount?.instrument ?? null,
+      },
       now
     );
     // An income reminder carries its goal as a tag; a transfer cannot, so it is
@@ -1152,6 +1159,9 @@ function GoalCard({
 
   const targetType = target?.type ?? 'one_time';
 
+  const accountTitle = (id: string) => accounts.find((a) => a.id === id)?.title ?? 'unknown account';
+  const walletTitle = accountTitle(selectedWalletId);
+
   const { thisMonthAdded, monthlyNeeded, nextMonthNeeded, leftAmount, monthlyStatus } =
     computeGoalProgress(goal, target, currentPeriodStart);
 
@@ -1334,7 +1344,7 @@ function GoalCard({
                   <div className="goal-reminder-row">
                     {reminderType === 'transfer' && (
                       <label className="goal-target-field">
-                        <span className="goal-target-label">From account</span>
+                        <span className="goal-target-label">From account → {walletTitle}</span>
                         <select
                           className="goal-target-input"
                           value={reminderSourceId}
@@ -1404,6 +1414,11 @@ function GoalCard({
                   <span>
                     {existingReminder.incomeAccount === existingReminder.outcomeAccount ? '➕ Income' : '🔄 Transfer'}
                     {' '}on day {reminderDayOfMonth(existingReminder)} — {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo
+                    {existingReminder.incomeAccount !== existingReminder.outcomeAccount && (
+                      <span className="goal-reminder-route">
+                        {' '}({accountTitle(existingReminder.outcomeAccount)} → {accountTitle(existingReminder.incomeAccount)})
+                      </span>
+                    )}
                   </span>
                   <button
                     className="btn-text"
@@ -1411,7 +1426,17 @@ function GoalCard({
                     onClick={() => {
                       const isTransfer = existingReminder.incomeAccount !== existingReminder.outcomeAccount;
                       setReminderType(isTransfer ? 'transfer' : 'income');
-                      setReminderSourceId(isTransfer ? existingReminder.outcomeAccount : '');
+                      // The funding account is whichever side is not the goal
+                      // wallet. A reminder that was linked rather than created
+                      // here may run the other way, and prefilling the wallet
+                      // itself would leave an unpickable value in the select.
+                      const counterpart =
+                        existingReminder.outcomeAccount === selectedWalletId
+                          ? existingReminder.incomeAccount
+                          : existingReminder.outcomeAccount;
+                      setReminderSourceId(
+                        isTransfer && counterpart !== selectedWalletId ? counterpart : ''
+                      );
                       setReminderDay(reminderDayOfMonth(existingReminder));
                       setReminderAmount(existingReminder.income || 0);
                       setReminderEditing(true);
@@ -1465,7 +1490,7 @@ function GoalCard({
                   </label>
                   {reminderType === 'transfer' && (
                     <label className="goal-target-field">
-                      <span className="goal-target-label">From account</span>
+                      <span className="goal-target-label">From account → {walletTitle}</span>
                       <select
                         className="goal-target-input"
                         value={reminderSourceId}

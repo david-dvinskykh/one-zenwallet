@@ -180,10 +180,16 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       const linkedCategoryId = Object.entries(links).find(([, rid]) => rid === reminder.id)?.[0];
       const categoryId = linkedCategoryId ?? reminder.tag?.[0] ?? null;
 
+      const walletId = store.requireWalletId();
+      const wallet = store.findAccount(walletId);
       const base = applyGoalReminderConfig(
         reminder,
         config,
-        isTransfer ? sourceInstrument : null,
+        {
+          walletId,
+          walletInstrument: wallet.instrument,
+          sourceInstrument: isTransfer ? sourceInstrument : null,
+        },
         store.nextChanged(reminder.changed)
       );
       // A transfer cannot carry its goal as a tag, so the association lives in

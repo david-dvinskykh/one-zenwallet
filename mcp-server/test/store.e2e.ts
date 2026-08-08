@@ -7,7 +7,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ZenStore } from '../src/store';
-import { buildGoalReminder } from '../../src/utils/goalReminders';
+import { applyGoalReminderConfig, buildGoalReminder } from '../../src/utils/goalReminders';
 import { reminderDayOfMonth } from '../../src/utils/goalMath';
 
 // Never touch a real developer's session state.
@@ -242,6 +242,31 @@ assert.equal(
   reminderDayOfMonth(store.requireData().reminders.find((r) => r.id === transferReminder.id)!),
   5,
   'the day still reads back correctly once points is zeroed'
+);
+assert.equal(transferReminder.outcomeAccount, 'salary-1', 'money leaves the funding account');
+assert.equal(transferReminder.incomeAccount, 'wallet-1', 'and lands in the goal wallet');
+
+// Editing a reminder that was linked rather than created here must still route
+// the money into the goal wallet, whatever the original pointed at.
+const strayReminder = { ...transferReminder, incomeAccount: 'salary-1', outcomeAccount: 'wallet-1' };
+const rerouted = applyGoalReminderConfig(
+  strayReminder,
+  { type: 'transfer', sourceAccountId: 'salary-1', dayOfMonth: 9, amount: 300 },
+  { walletId: 'wallet-1', walletInstrument: 1, sourceInstrument: 1 },
+  store.nextChanged(strayReminder.changed)
+);
+assert.equal(rerouted.outcomeAccount, 'salary-1', 'an edit re-points the source account');
+assert.equal(rerouted.incomeAccount, 'wallet-1', 'and the destination back to the goal wallet');
+
+assert.throws(
+  () =>
+    applyGoalReminderConfig(
+      strayReminder,
+      { type: 'transfer', sourceAccountId: 'wallet-1', dayOfMonth: 9, amount: 300 },
+      { walletId: 'wallet-1', walletInstrument: 1, sourceInstrument: 1 }
+    ),
+  /other than the goal wallet/,
+  'a wallet-to-itself "transfer" is refused rather than saved as income'
 );
 
 // --- clearing --------------------------------------------------------------

@@ -762,6 +762,10 @@
   font-weight: 700;
 }
 
+.goal-reminder-route {
+  color: #9a9ab8;
+}
+
 .goal-reminder-existing {
   display: flex;
   align-items: center;
