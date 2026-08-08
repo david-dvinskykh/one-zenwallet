@@ -67,15 +67,21 @@ export function computeMonthlyNeeded(
   return remaining / monthsLeft;
 }
 
-// ZenMoney monthly reminders carry the recurrence day in startDate; `points` is
-// only the day for reminders this app creates (externally-created ones may have
-// points: [0]). Prefer a valid points day, else fall back to the startDate day.
+/**
+ * The day of the month a monthly reminder fires on.
+ *
+ * `startDate` is the authority: for `interval: 'month'` ZenMoney derives the
+ * schedule from it and overwrites whatever `points` the client sent with `[0]`
+ * (observed — a push of `points: [12]` comes back as `points: [0]` with
+ * `startDate` untouched). `points` is only consulted as a fallback for a
+ * reminder that somehow has no usable startDate.
+ */
 export function reminderDayOfMonth(reminder: ZenReminder): number {
-  const p = reminder.points?.[0];
-  if (typeof p === 'number' && p >= 1 && p <= 31) return p;
   const sd = reminder.startDate?.split('-')[2];
   const d = sd ? parseInt(sd, 10) : NaN;
-  return !isNaN(d) && d >= 1 && d <= 31 ? d : 1;
+  if (!isNaN(d) && d >= 1 && d <= 31) return d;
+  const p = reminder.points?.[0];
+  return typeof p === 'number' && p >= 1 && p <= 31 ? p : 1;
 }
 
 export interface GoalProgress {

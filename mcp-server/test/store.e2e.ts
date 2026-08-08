@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ZenStore } from '../src/store';
 import { buildGoalReminder } from '../../src/utils/goalReminders';
+import { reminderDayOfMonth } from '../../src/utils/goalMath';
 
 // Never touch a real developer's session state.
 const stateDir = path.join(os.tmpdir(), `one-zenwallet-mcp-test-${process.pid}`);
@@ -95,9 +96,13 @@ globalThis.fetch = (async (_url: string, init: { body: string }) => {
     const table = (db[key] ??= []);
     for (const entity of payload[key] as Record<string, unknown>[]) {
       pushed.add(`${key}:${entity.id}`);
+      // A monthly reminder takes its day from startDate; the server overwrites
+      // whatever `points` the client sent.
+      const stored =
+        key === 'reminder' && entity.interval === 'month' ? { ...entity, points: [0] } : entity;
       const index = table.findIndex((existing) => existing.id === entity.id);
-      if (index >= 0) table[index] = { ...table[index], ...entity };
-      else table.push(entity);
+      if (index >= 0) table[index] = { ...table[index], ...stored };
+      else table.push(stored);
     }
   }
 
@@ -207,6 +212,8 @@ const transferReminder = buildGoalReminder({
   now: store.nextChanged(),
 });
 assert.equal(transferReminder.tag, null, 'a transfer reminder carries no category');
+assert.equal(transferReminder.startDate.slice(-2), '05', 'the day travels in startDate');
+assert.deepEqual(transferReminder.points, [0], 'and not in points, which the server zeroes');
 
 await assert.rejects(
   store.push({ reminder: [{ ...transferReminder, id: 'rem-rejected', tag: ['tag-trip'] }] }),
@@ -225,6 +232,16 @@ assert.equal(
   store.goalReminderMap().get('tag-trip')?.id,
   transferReminder.id,
   'and the goal picks it up through the links map'
+);
+assert.deepEqual(
+  db.reminder.find((reminder) => reminder.id === transferReminder.id)?.points,
+  store.requireData().reminders.find((reminder) => reminder.id === transferReminder.id)?.points,
+  'the locally applied copy matches what the server actually stored'
+);
+assert.equal(
+  reminderDayOfMonth(store.requireData().reminders.find((r) => r.id === transferReminder.id)!),
+  5,
+  'the day still reads back correctly once points is zeroed'
 );
 
 // --- clearing --------------------------------------------------------------

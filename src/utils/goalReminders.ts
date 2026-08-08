@@ -61,7 +61,10 @@ export function buildGoalReminder(params: {
     payee: null,
     interval: 'month',
     step: 1,
-    points: [config.dayOfMonth],
+    // The recurrence day travels in startDate. ZenMoney overwrites `points` with
+    // [0] for a monthly reminder, so sending the day here would only make the
+    // local copy disagree with what the server actually stored.
+    points: [0],
     startDate: computeReminderStartDate(config.dayOfMonth, params.today),
     endDate: null,
     notify: true,
@@ -202,7 +205,8 @@ export function applyGoalReminderConfig(
     // ZenMoney rejects the push otherwise. Callers keep the goal association by
     // writing the `oneZenwalletGoalReminders` link instead.
     tag: isTransfer ? null : reminder.tag,
-    points: [config.dayOfMonth],
+    // See buildGoalReminder — startDate carries the day, ZenMoney zeroes points.
+    points: [0],
     startDate: computeReminderStartDate(config.dayOfMonth, today),
     changed: now,
   };
