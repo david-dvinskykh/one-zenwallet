@@ -797,6 +797,19 @@
   border-radius: 6px;
   font-size: 0.83rem;
   color: var(--text-primary);
+  flex-wrap: wrap;
+}
+
+.goal-reminder-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.goal-reminder-confirm {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
 }
 
 .goal-reminder-form {

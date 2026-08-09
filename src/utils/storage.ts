@@ -3,6 +3,7 @@ const STORAGE_KEY_WALLET = 'zen_selected_wallet';
 const STORAGE_KEY_TIMESTAMP = 'zen_server_timestamp';
 const STORAGE_KEY_MANUAL_GOALS = 'zen_manual_goal_assignments';
 const STORAGE_KEY_PINNED_GOALS = 'zen_pinned_goal_categories';
+const STORAGE_KEY_DISMISSED_SUGGESTIONS = 'zen_dismissed_reminder_suggestions';
 
 const DB_NAME = 'zenwallet';
 const DB_VERSION = 1;
@@ -139,11 +140,32 @@ export function setPinnedGoalCategories(ids: string[]): void {
   localStorage.setItem(STORAGE_KEY_PINNED_GOALS, JSON.stringify(ids));
 }
 
+/**
+ * Reminders the user told the app to stop offering as a goal's monthly
+ * reminder. A display preference like the pinned categories above, so it stays
+ * on the device rather than in the ZenMoney-backed hidden data.
+ */
+export function getDismissedReminderSuggestions(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DISMISSED_SUGGESTIONS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setDismissedReminderSuggestions(ids: string[]): void {
+  localStorage.setItem(STORAGE_KEY_DISMISSED_SUGGESTIONS, JSON.stringify(ids));
+}
+
 export async function clearAll(): Promise<void> {
   localStorage.removeItem(STORAGE_KEY_TOKEN);
   localStorage.removeItem(STORAGE_KEY_WALLET);
   localStorage.removeItem(STORAGE_KEY_TIMESTAMP);
   localStorage.removeItem(STORAGE_KEY_MANUAL_GOALS);
   localStorage.removeItem(STORAGE_KEY_PINNED_GOALS);
+  localStorage.removeItem(STORAGE_KEY_DISMISSED_SUGGESTIONS);
   await clearCachedData();
 }

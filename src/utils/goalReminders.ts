@@ -146,8 +146,11 @@ export function buildSuggestedReminderMap(params: {
   transactionMap: Map<string, ZenTransaction>;
   markerToReminderId: Map<string, string>;
   goalReminderMap: Map<string, ZenReminder>;
+  /** Reminders the user told the app to stop offering. */
+  dismissedReminderIds?: Iterable<string>;
 }): Map<string, ZenReminder> {
   const { goals, reminders, transactionMap, markerToReminderId, goalReminderMap } = params;
+  const dismissed = new Set(params.dismissedReminderIds ?? []);
   const map = new Map<string, ZenReminder>();
 
   for (const goal of goals) {
@@ -157,7 +160,7 @@ export function buildSuggestedReminderMap(params: {
       const marker = transactionMap.get(tx.id)?.reminderMarker;
       if (!marker) continue;
       const reminderId = markerToReminderId.get(marker);
-      if (!reminderId) continue;
+      if (!reminderId || dismissed.has(reminderId)) continue;
       reminderCounts.set(reminderId, (reminderCounts.get(reminderId) ?? 0) + 1);
     }
     if (!reminderCounts.size) continue;

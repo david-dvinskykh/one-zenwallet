@@ -32,7 +32,7 @@ Single React context (`AppContext`) owns all async state: token, selectedWalletI
 ### Storage (`src/utils/storage.ts`)
 
 Two-tier persistence:
-- **localStorage** — token, selected wallet id, server timestamp, manual goal assignments (small scalars)
+- **localStorage** — token, selected wallet id, server timestamp, manual goal assignments (small scalars), and the two per-device display preferences: pinned goal categories and dismissed reminder suggestions
 - **IndexedDB** (`zenwallet` DB, `cache` store) — full ZenMoney snapshot (avoids quota limits)
 
 ### API (`src/api/zenmoney.ts`)

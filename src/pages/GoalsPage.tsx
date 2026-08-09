@@ -6,6 +6,8 @@ import {
   setManualGoalAssignment,
   getPinnedGoalCategories,
   setPinnedGoalCategories,
+  getDismissedReminderSuggestions,
+  setDismissedReminderSuggestions,
 } from '../utils/storage';
 import {
   getDataAccount,
@@ -55,6 +57,9 @@ export function GoalsPage() {
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<string>>(new Set());
   const [batchTagId, setBatchTagId] = useState('');
   const [pinnedGoalCategories, setPinnedGoalCategoriesState] = useState<string[]>(() => getPinnedGoalCategories());
+  const [dismissedSuggestions, setDismissedSuggestionsState] = useState<string[]>(
+      () => getDismissedReminderSuggestions()
+  );
   const [showAddGoalPicker, setShowAddGoalPicker] = useState(false);
   const [addGoalTagId, setAddGoalTagId] = useState('');
   const [highlightedTransactionId, setHighlightedTransactionId] = useState<string | null>(null);
@@ -120,8 +125,18 @@ export function GoalsPage() {
       transactionMap,
       markerToReminderId,
       goalReminderMap,
+      dismissedReminderIds: dismissedSuggestions,
     });
-  }, [data, goals, goalReminderMap, transactionMap, markerToReminderId]);
+  }, [data, goals, goalReminderMap, transactionMap, markerToReminderId, dismissedSuggestions]);
+
+  const handleDismissSuggestion = (reminderId: string) => {
+    setDismissedSuggestionsState((prev) => {
+      if (prev.includes(reminderId)) return prev;
+      const next = [...prev, reminderId];
+      setDismissedReminderSuggestions(next);
+      return next;
+    });
+  };
 
   /**
    * Reminder edits push straight to ZenMoney rather than going through the
@@ -794,6 +809,7 @@ export function GoalsPage() {
                   onUpdateReminder={handleUpdateReminder}
                   onDeleteReminder={handleDeleteReminder}
                   onLinkReminder={handleLinkReminder}
+                  onDismissSuggestion={handleDismissSuggestion}
               />
           ))}
         </div>
@@ -1115,6 +1131,7 @@ function GoalCard({
   onUpdateReminder,
   onDeleteReminder,
   onLinkReminder,
+  onDismissSuggestion,
 }: {
   goal: Goal;
   currency: string;
@@ -1137,6 +1154,7 @@ function GoalCard({
   ) => Promise<boolean>;
   onDeleteReminder: (reminderId: string) => Promise<boolean>;
   onLinkReminder: (reminderId: string, categoryId: string) => Promise<boolean>;
+  onDismissSuggestion: (reminderId: string) => void;
 }) {
   const [reminderType, setReminderType] = useState<'transfer' | 'income'>('transfer');
   const [reminderSourceId, setReminderSourceId] = useState('');
@@ -1144,6 +1162,9 @@ function GoalCard({
   const [reminderAmount, setReminderAmount] = useState(0);
   const [reminderLoading, setReminderLoading] = useState(false);
   const [reminderEditing, setReminderEditing] = useState(false);
+  // Deleting a suggested reminder removes a real ZenMoney entity the app does
+  // not own, so it asks first.
+  const [confirmDropSuggestion, setConfirmDropSuggestion] = useState(false);
 
   const formatAmount = (n: number) =>
     `${n >= 0 ? '+' : ''}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
@@ -1463,17 +1484,66 @@ function GoalCard({
                     <span>
                       {suggestedReminder.incomeAccount === suggestedReminder.outcomeAccount ? '➕' : '🔄'}{' '}
                       Reminder found (day {reminderDayOfMonth(suggestedReminder)} · {suggestedReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo)
+                      {suggestedReminder.incomeAccount !== suggestedReminder.outcomeAccount && (
+                        <span className="goal-reminder-route">
+                          {' '}({accountTitle(suggestedReminder.outcomeAccount)} → {accountTitle(suggestedReminder.incomeAccount)})
+                        </span>
+                      )}
                     </span>
-                    <button
-                      className="btn-text"
-                      disabled={reminderLoading}
-                      onClick={async () => {
-                        setReminderLoading(true);
-                        try { await onLinkReminder(suggestedReminder.id, goal.categoryId); } finally { setReminderLoading(false); }
-                      }}
-                    >
-                      {reminderLoading ? 'Linking…' : 'Link'}
-                    </button>
+                    {confirmDropSuggestion ? (
+                      <div className="goal-reminder-suggestion-actions">
+                        <span className="goal-reminder-confirm">Delete it from ZenMoney?</span>
+                        <button
+                          className="btn-text goal-reminder-delete"
+                          disabled={reminderLoading}
+                          onClick={async () => {
+                            setReminderLoading(true);
+                            try {
+                              const deleted = await onDeleteReminder(suggestedReminder.id);
+                              if (deleted) setConfirmDropSuggestion(false);
+                            } finally { setReminderLoading(false); }
+                          }}
+                        >
+                          {reminderLoading ? 'Deleting…' : 'Yes, delete'}
+                        </button>
+                        <button
+                          className="btn-text"
+                          disabled={reminderLoading}
+                          onClick={() => setConfirmDropSuggestion(false)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="goal-reminder-suggestion-actions">
+                        <button
+                          className="btn-text"
+                          disabled={reminderLoading}
+                          onClick={async () => {
+                            setReminderLoading(true);
+                            try { await onLinkReminder(suggestedReminder.id, goal.categoryId); } finally { setReminderLoading(false); }
+                          }}
+                        >
+                          {reminderLoading ? 'Linking…' : 'Link'}
+                        </button>
+                        <button
+                          className="btn-text"
+                          disabled={reminderLoading}
+                          title="Stop offering this reminder on this device. The reminder itself is left alone."
+                          onClick={() => onDismissSuggestion(suggestedReminder.id)}
+                        >
+                          Hide
+                        </button>
+                        <button
+                          className="btn-text goal-reminder-delete"
+                          disabled={reminderLoading}
+                          title="Delete this reminder from ZenMoney"
+                          onClick={() => setConfirmDropSuggestion(true)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="goal-reminder-row">
