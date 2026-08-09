@@ -235,6 +235,8 @@ assert.ok(
   markers.every((m) => m.reminder === transferReminder.id && m.state === 'planned'),
   'every marker points at its reminder and is planned'
 );
+assert.equal(transferReminder.notify, false, 'a funding transfer does not notify');
+assert.ok(markers.every((m) => m.notify === false), 'and neither do its occurrences');
 
 await store.push({ reminder: [transferReminder], reminderMarker: markers });
 assert.equal(
