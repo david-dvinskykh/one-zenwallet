@@ -8,6 +8,9 @@ import {
   setPinnedGoalCategories,
   getDismissedReminderSuggestions,
   setDismissedReminderSuggestions,
+  getReminderDefaults,
+  setReminderDefaults,
+  type ReminderDefaults,
 } from '../utils/storage';
 import {
   getDataAccount,
@@ -20,6 +23,7 @@ import { syncGoalRemindersToZenmoney } from '../utils/goalRemindersSync';
 import {
   computeCurrentPeriodStart,
   computeGoalProgress,
+  plannedMonthlyContribution,
   reminderDayOfMonth,
 } from '../utils/goalMath';
 import {
@@ -36,7 +40,16 @@ import {
 import { pushZenmoneyDiff } from '../api/zenmoney';
 import { nextChangedTimestamp, type ZenLocalChanges } from '../utils/zenData';
 import { StatusDialog, type WriteStatus } from '../components/StatusDialog';
-import type { Goal, GoalFeedItem, GoalTarget, ZenAccount, ZenReminder, ZenTransaction } from '../types/zenmoney';
+import { ReminderSyncDialog, type ReminderPlan } from '../components/ReminderSyncDialog';
+import type {
+  Goal,
+  GoalFeedItem,
+  GoalTarget,
+  ZenAccount,
+  ZenReminder,
+  ZenReminderMarker,
+  ZenTransaction,
+} from '../types/zenmoney';
 import './GoalsPage.css';
 
 interface BulkSuggestion {
@@ -68,6 +81,10 @@ export function GoalsPage() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [writeStatus, setWriteStatus] = useState<WriteStatus | null>(null);
+  const [showReminderSync, setShowReminderSync] = useState(false);
+  const [reminderDefaults, setReminderDefaultsState] = useState<ReminderDefaults>(
+      () => getReminderDefaults()
+  );
 
   // Stable, so the dialog's auto-dismiss timer is not restarted by every render.
   const closeWriteStatus = useCallback(() => setWriteStatus(null), []);
@@ -88,6 +105,11 @@ export function GoalsPage() {
   );
 
   const monthStartDay = data?.user?.monthStartDay ?? 1;
+
+  const currentPeriodStart = useMemo(
+      () => computeCurrentPeriodStart(monthStartDay),
+      [monthStartDay]
+  );
 
   useEffect(() => {
     if (!data) return;
@@ -139,6 +161,160 @@ export function GoalsPage() {
       return next;
     });
   };
+
+  const reminderPlans = useMemo<ReminderPlan[]>(() => {
+    if (!data) return [];
+    const accountTitleOf = (id: string) =>
+        data.accounts.find((a) => a.id === id)?.title ?? 'unknown account';
+
+    return goals.map((goal) => {
+      const existing = goalReminderMap.get(goal.categoryId) ?? null;
+      const current = existing
+          ? {
+              dayOfMonth: reminderDayOfMonth(existing),
+              amount: existing.income,
+              sourceTitle: accountTitleOf(existing.outcomeAccount),
+            }
+          : null;
+
+      const amount = plannedMonthlyContribution(
+          goal,
+          goalTargets[goal.categoryId] ?? null,
+          currentPeriodStart
+      );
+      if (amount === null) {
+        return {
+          categoryId: goal.categoryId,
+          categoryTitle: goal.categoryTitle,
+          action: 'skip' as const,
+          amount: null,
+          current,
+          reason: goalTargets[goal.categoryId]
+              ? 'Target already reached — nothing to transfer'
+              : 'No target set, so there is no monthly amount to plan',
+        };
+      }
+
+      const alreadyRight =
+          existing != null &&
+          existing.income === amount &&
+          reminderDayOfMonth(existing) === reminderDefaults.dayOfMonth &&
+          existing.outcomeAccount === reminderDefaults.sourceAccountId &&
+          existing.incomeAccount === selectedWalletId;
+
+      return {
+        categoryId: goal.categoryId,
+        categoryTitle: goal.categoryTitle,
+        action: alreadyRight ? ('unchanged' as const) : existing ? ('update' as const) : ('create' as const),
+        amount,
+        current,
+      };
+    });
+  }, [data, goals, goalTargets, goalReminderMap, currentPeriodStart, reminderDefaults, selectedWalletId]);
+
+  const handleReminderDefaultsChange = (next: ReminderDefaults) => {
+    setReminderDefaultsState(next);
+    setReminderDefaults(next);
+  };
+
+  /**
+   * Creates or refreshes many goals' funding transfers in one push, rather than
+   * one round trip per goal. Amounts come from each goal's target; the source
+   * account and the day are shared.
+   */
+  const handleSyncReminders = (categoryIds: string[]) =>
+    runZenWrite(`Sync ${categoryIds.length} recurring transfer${categoryIds.length === 1 ? '' : 's'}`,
+      async () => {
+        if (!token || !data || !selectedWalletId) return;
+        const walletAccount = data.accounts.find((a) => a.id === selectedWalletId);
+        if (!walletAccount) throw new Error('The selected wallet is no longer available');
+        const sourceAccount = data.accounts.find((a) => a.id === reminderDefaults.sourceAccountId);
+        if (!sourceAccount) throw new Error('Pick the account the transfers come from');
+        const userId = data.user?.id;
+        if (!userId) throw new Error('User profile not loaded yet — refresh and try again');
+
+        const planById = new Map(reminderPlans.map((p) => [p.categoryId, p]));
+        const now = nextChangedTimestamp(data.serverTimestamp);
+        const dataAccountId = getDataAccount(data.accounts)?.id ?? null;
+        const links = { ...parseGoalRemindersFromReminders(data.reminders, dataAccountId) };
+
+        const reminders: ZenReminder[] = [];
+        const markers: ZenReminderMarker[] = [];
+        let linksChanged = false;
+
+        for (const categoryId of categoryIds) {
+          const amount = planById.get(categoryId)?.amount;
+          if (!amount) continue;
+          const config: GoalReminderConfig = {
+            type: 'transfer',
+            sourceAccountId: sourceAccount.id,
+            dayOfMonth: reminderDefaults.dayOfMonth,
+            amount,
+          };
+
+          const existing = goalReminderMap.get(categoryId);
+          const reminder = existing
+              ? applyGoalReminderConfig(
+                  existing,
+                  config,
+                  {
+                    walletId: selectedWalletId,
+                    walletInstrument: walletAccount.instrument,
+                    sourceInstrument: sourceAccount.instrument,
+                  },
+                  nextChangedTimestamp(data.serverTimestamp, existing.changed)
+                )
+              : buildGoalReminder({
+                  categoryId,
+                  config,
+                  walletId: selectedWalletId,
+                  walletInstrument: walletAccount.instrument,
+                  sourceInstrument: sourceAccount.instrument,
+                  userId,
+                  now,
+                });
+
+          reminders.push(reminder);
+          markers.push(
+            ...buildReminderMarkers({
+              reminder,
+              now,
+              reuseIds: plannedMarkersFor(data.reminderMarkers, reminder.id).map((m) => m.id),
+            })
+          );
+
+          // A transfer cannot carry its goal as a tag, so the association lives
+          // in the goalReminders map.
+          if (links[categoryId] !== reminder.id) {
+            links[categoryId] = reminder.id;
+            linksChanged = true;
+          }
+        }
+
+        if (reminders.length === 0) throw new Error('Nothing to apply');
+
+        await pushZenmoneyDiff(token, data.serverTimestamp, {
+          reminder: reminders,
+          reminderMarker: markers,
+        });
+        const changes: ZenLocalChanges = { reminders, reminderMarkers: markers };
+
+        if (linksChanged) {
+          const linkChanges = await syncGoalRemindersToZenmoney({
+            token,
+            serverTimestamp: data.serverTimestamp,
+            accounts: data.accounts,
+            reminders: data.reminders,
+            links,
+          });
+          changes.accounts = linkChanges.accounts;
+          changes.reminders = [...reminders, ...(linkChanges.reminders ?? [])];
+        }
+
+        await refresh();
+        applyLocalChanges(changes);
+        setShowReminderSync(false);
+      });
 
   /**
    * Reminder edits push straight to ZenMoney rather than going through the
@@ -476,11 +652,6 @@ export function GoalsPage() {
     setAddGoalTagId('');
   };
 
-  const currentPeriodStart = useMemo(
-      () => computeCurrentPeriodStart(monthStartDay),
-      [monthStartDay]
-  );
-
   const thisMonthAddings = useMemo(
       () => feed
           .filter((item) => item.amount > 0 && item.date >= currentPeriodStart)
@@ -744,6 +915,14 @@ export function GoalsPage() {
               >
                 {saveState === 'saving' ? 'Saving...' : 'Save Data'}
               </button>
+              <button
+                  className="btn-text"
+                  onClick={() => setShowReminderSync(true)}
+                  disabled={loading || goals.length === 0}
+                  title="Create or refresh the monthly transfer that funds each goal"
+              >
+                Transfers…
+              </button>
               <button className="btn-text" onClick={handleChangeWallet}>
                 Change Wallet
               </button>
@@ -993,6 +1172,21 @@ export function GoalsPage() {
             )}
           </div>
         </section>
+
+        {showReminderSync && (
+            <ReminderSyncDialog
+                plans={reminderPlans}
+                accounts={data.accounts}
+                walletId={selectedWalletId}
+                walletTitle={selectedAccount?.title ?? 'the wallet'}
+                currency={currency}
+                defaults={reminderDefaults}
+                onDefaultsChange={handleReminderDefaultsChange}
+                onApply={handleSyncReminders}
+                onClose={() => setShowReminderSync(false)}
+                busy={writeStatus?.state === 'saving'}
+            />
+        )}
 
         <StatusDialog status={writeStatus} onClose={closeWriteStatus} />
       </div>

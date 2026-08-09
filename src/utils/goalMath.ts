@@ -84,6 +84,27 @@ export function reminderDayOfMonth(reminder: ZenReminder): number {
   return typeof p === 'number' && p >= 1 && p <= 31 ? p : 1;
 }
 
+/**
+ * The monthly contribution a goal's funding reminder should carry, or null when
+ * there is nothing to base one on (no target, or the target is already met).
+ * Rounded up — a reminder that under-funds by cents misses the target.
+ */
+export function plannedMonthlyContribution(
+  goal: Goal,
+  target: GoalTarget | null,
+  periodStart: string
+): number | null {
+  if (!target || target.amount <= 0) return null;
+  if ((target.type ?? 'one_time') === 'fixed_monthly') return Math.ceil(target.amount);
+
+  const { monthlyNeeded, nextMonthNeeded } = computeGoalProgress(goal, target, periodStart);
+  // This month's figure drops to 0 once the month is funded; the recurring
+  // transfer should then carry what each following month needs.
+  const amount = monthlyNeeded !== null && monthlyNeeded > 0 ? monthlyNeeded : nextMonthNeeded;
+  if (amount === null || amount <= 0) return null;
+  return Math.ceil(amount);
+}
+
 export interface GoalProgress {
   thisMonthAdded: number;
   savedBeforeThisMonth: number;

@@ -4,6 +4,7 @@ const STORAGE_KEY_TIMESTAMP = 'zen_server_timestamp';
 const STORAGE_KEY_MANUAL_GOALS = 'zen_manual_goal_assignments';
 const STORAGE_KEY_PINNED_GOALS = 'zen_pinned_goal_categories';
 const STORAGE_KEY_DISMISSED_SUGGESTIONS = 'zen_dismissed_reminder_suggestions';
+const STORAGE_KEY_REMINDER_DEFAULTS = 'zen_reminder_defaults';
 
 const DB_NAME = 'zenwallet';
 const DB_VERSION = 1;
@@ -160,6 +161,31 @@ export function setDismissedReminderSuggestions(ids: string[]): void {
   localStorage.setItem(STORAGE_KEY_DISMISSED_SUGGESTIONS, JSON.stringify(ids));
 }
 
+export interface ReminderDefaults {
+  /** Account a goal's funding transfer comes from, when none is chosen per goal. */
+  sourceAccountId: string;
+  dayOfMonth: number;
+}
+
+export function getReminderDefaults(): ReminderDefaults {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_REMINDER_DEFAULTS);
+    if (!raw) return { sourceAccountId: '', dayOfMonth: 1 };
+    const parsed = JSON.parse(raw) as Partial<ReminderDefaults>;
+    const day = Number(parsed?.dayOfMonth);
+    return {
+      sourceAccountId: typeof parsed?.sourceAccountId === 'string' ? parsed.sourceAccountId : '',
+      dayOfMonth: Number.isInteger(day) && day >= 1 && day <= 31 ? day : 1,
+    };
+  } catch {
+    return { sourceAccountId: '', dayOfMonth: 1 };
+  }
+}
+
+export function setReminderDefaults(defaults: ReminderDefaults): void {
+  localStorage.setItem(STORAGE_KEY_REMINDER_DEFAULTS, JSON.stringify(defaults));
+}
+
 export async function clearAll(): Promise<void> {
   localStorage.removeItem(STORAGE_KEY_TOKEN);
   localStorage.removeItem(STORAGE_KEY_WALLET);
@@ -167,5 +193,6 @@ export async function clearAll(): Promise<void> {
   localStorage.removeItem(STORAGE_KEY_MANUAL_GOALS);
   localStorage.removeItem(STORAGE_KEY_PINNED_GOALS);
   localStorage.removeItem(STORAGE_KEY_DISMISSED_SUGGESTIONS);
+  localStorage.removeItem(STORAGE_KEY_REMINDER_DEFAULTS);
   await clearCachedData();
 }

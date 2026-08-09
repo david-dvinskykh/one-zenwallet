@@ -86,6 +86,20 @@ running it. `src/appVersion.ts` sits outside `src/utils` on purpose: that
 directory is compiled into the MCP server, which has neither the Vite globals
 nor `window`.
 
+### Bulk reminder sync
+
+`ReminderSyncDialog` (`src/components/`) creates or refreshes many goals'
+funding transfers in **one** push — `handleSyncReminders` in `GoalsPage` builds
+every reminder and marker first, pushes them together, then writes the
+`oneZenwalletGoalReminders` links once. Do not loop the single-goal handlers
+instead; each of those does its own `refresh()`.
+
+Each goal's amount comes from its own target via `plannedMonthlyContribution`
+(`goalMath.ts`); only the source account and the day are shared, and those two
+live in localStorage as `zen_reminder_defaults`. A goal with no target, or one
+whose target is already met, has no amount to plan and is reported as skipped
+rather than silently omitted.
+
 ### Reporting write failures
 
 Reminder create/update/delete/link push straight to ZenMoney instead of going
