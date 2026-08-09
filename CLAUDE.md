@@ -94,11 +94,28 @@ every reminder and marker first, pushes them together, then writes the
 `oneZenwalletGoalReminders` links once. Do not loop the single-goal handlers
 instead; each of those does its own `refresh()`.
 
-Each goal's amount comes from its own target via `plannedMonthlyContribution`
+Each goal's amount comes from its own target via `planGoalContribution`
 (`goalMath.ts`); only the source account and the day are shared, and those two
-live in localStorage as `zen_reminder_defaults`. A goal with no target, or one
-whose target is already met, has no amount to plan and is reported as skipped
-rather than silently omitted.
+live in localStorage as `zen_reminder_defaults`. Only a goal that is neither
+targeted nor overdrawn is skipped, and the row says why.
+
+`planGoalContribution` returns a recurrence as well as an amount:
+- A **negative balance is part of what has to be transferred** — it enlarges
+  `remaining` in `computeMonthlyNeeded` for free, since that is `target - saved`
+  and `saved` may be negative. A target amount of `0` with a date is therefore
+  meaningful: "get back to zero by then".
+- An overdrawn goal with no usable target (none set, or its date has passed)
+  gets `recurrence: 'once'` for the shortfall — a single transfer, not a
+  standing order.
+- A dated target sets `endDate`, so the transfers stop instead of running on
+  past the date.
+
+`GoalReminderConfig` carries that through: `recurrence: 'once'` builds a
+reminder with `interval`/`step`/`points` all null and `startDate === endDate`,
+and `buildReminderMarkers` then emits exactly one occurrence. For a repeating
+reminder it stops generating once the dates pass `endDate`. `reminderDates`
+drops an `endDate` earlier than the first run — that would leave a reminder with
+no occurrences at all, which is the failure mode described above.
 
 ### Reporting write failures
 

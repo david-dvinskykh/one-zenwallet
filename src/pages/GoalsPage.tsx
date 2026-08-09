@@ -23,7 +23,7 @@ import { syncGoalRemindersToZenmoney } from '../utils/goalRemindersSync';
 import {
   computeCurrentPeriodStart,
   computeGoalProgress,
-  plannedMonthlyContribution,
+  planGoalContribution,
   reminderDayOfMonth,
 } from '../utils/goalMath';
 import {
@@ -177,12 +177,12 @@ export function GoalsPage() {
             }
           : null;
 
-      const amount = plannedMonthlyContribution(
+      const plan = planGoalContribution(
           goal,
           goalTargets[goal.categoryId] ?? null,
           currentPeriodStart
       );
-      if (amount === null) {
+      if (plan === null) {
         return {
           categoryId: goal.categoryId,
           categoryTitle: goal.categoryTitle,
@@ -190,23 +190,27 @@ export function GoalsPage() {
           amount: null,
           current,
           reason: goalTargets[goal.categoryId]
-              ? 'Target already reached — nothing to transfer'
-              : 'No target set, so there is no monthly amount to plan',
+              ? 'Target already reached and the balance is not negative'
+              : 'No target set and the balance is not negative',
         };
       }
 
       const alreadyRight =
           existing != null &&
-          existing.income === amount &&
+          existing.income === plan.amount &&
           reminderDayOfMonth(existing) === reminderDefaults.dayOfMonth &&
           existing.outcomeAccount === reminderDefaults.sourceAccountId &&
-          existing.incomeAccount === selectedWalletId;
+          existing.incomeAccount === selectedWalletId &&
+          (existing.interval === null) === (plan.recurrence === 'once') &&
+          (existing.endDate ?? null) === (plan.recurrence === 'once' ? existing.startDate : plan.endDate ?? null);
 
       return {
         categoryId: goal.categoryId,
         categoryTitle: goal.categoryTitle,
         action: alreadyRight ? ('unchanged' as const) : existing ? ('update' as const) : ('create' as const),
-        amount,
+        amount: plan.amount,
+        recurrence: plan.recurrence,
+        endDate: plan.endDate,
         current,
       };
     });
@@ -223,7 +227,7 @@ export function GoalsPage() {
    * account and the day are shared.
    */
   const handleSyncReminders = (categoryIds: string[]) =>
-    runZenWrite(`Sync ${categoryIds.length} recurring transfer${categoryIds.length === 1 ? '' : 's'}`,
+    runZenWrite(`Sync ${categoryIds.length} transfer${categoryIds.length === 1 ? '' : 's'}`,
       async () => {
         if (!token || !data || !selectedWalletId) return;
         const walletAccount = data.accounts.find((a) => a.id === selectedWalletId);
@@ -243,13 +247,15 @@ export function GoalsPage() {
         let linksChanged = false;
 
         for (const categoryId of categoryIds) {
-          const amount = planById.get(categoryId)?.amount;
-          if (!amount) continue;
+          const plan = planById.get(categoryId);
+          if (!plan?.amount) continue;
           const config: GoalReminderConfig = {
             type: 'transfer',
             sourceAccountId: sourceAccount.id,
             dayOfMonth: reminderDefaults.dayOfMonth,
-            amount,
+            amount: plan.amount,
+            recurrence: plan.recurrence,
+            endDate: plan.endDate ?? null,
           };
 
           const existing = goalReminderMap.get(categoryId);

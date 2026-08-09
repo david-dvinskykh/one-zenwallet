@@ -84,25 +84,51 @@ export function reminderDayOfMonth(reminder: ZenReminder): number {
   return typeof p === 'number' && p >= 1 && p <= 31 ? p : 1;
 }
 
+export interface GoalContributionPlan {
+  /** Rounded up — a transfer that under-funds by cents misses the target. */
+  amount: number;
+  /** 'once' is a single transfer that does not repeat. */
+  recurrence: 'monthly' | 'once';
+  /** Date the transfers should stop, when the target names one. */
+  endDate?: string;
+}
+
 /**
- * The monthly contribution a goal's funding reminder should carry, or null when
- * there is nothing to base one on (no target, or the target is already met).
- * Rounded up — a reminder that under-funds by cents misses the target.
+ * What a goal's funding transfer should carry, or null when there is nothing to
+ * fund.
+ *
+ * An overdrawn goal is always worth covering: its negative balance is part of
+ * what has to be transferred, and on its own — no target, or a target whose
+ * date has already passed — it earns a single transfer for the shortfall rather
+ * than a standing order. A target amount of 0 is meaningful for exactly this
+ * reason: it means "get back to zero by this date".
  */
-export function plannedMonthlyContribution(
+export function planGoalContribution(
   goal: Goal,
   target: GoalTarget | null,
   periodStart: string
-): number | null {
-  if (!target || target.amount <= 0) return null;
-  if ((target.type ?? 'one_time') === 'fixed_monthly') return Math.ceil(target.amount);
+): GoalContributionPlan | null {
+  const shortfall = goal.amount < 0 ? Math.ceil(-goal.amount) : 0;
+  const coverShortfall = (): GoalContributionPlan | null =>
+    shortfall > 0 ? { amount: shortfall, recurrence: 'once' } : null;
 
+  if (!target || (target.amount <= 0 && !target.date)) return coverShortfall();
+
+  if ((target.type ?? 'one_time') === 'fixed_monthly') {
+    const amount = Math.ceil(target.amount);
+    return amount > 0 ? { amount, recurrence: 'monthly' } : coverShortfall();
+  }
+
+  // A dated target: spread what is still missing over the months left. The
+  // shortfall is already folded in — `remaining` is target minus a balance that
+  // may itself be negative.
   const { monthlyNeeded, nextMonthNeeded } = computeGoalProgress(goal, target, periodStart);
-  // This month's figure drops to 0 once the month is funded; the recurring
-  // transfer should then carry what each following month needs.
-  const amount = monthlyNeeded !== null && monthlyNeeded > 0 ? monthlyNeeded : nextMonthNeeded;
-  if (amount === null || amount <= 0) return null;
-  return Math.ceil(amount);
+  // This month's figure drops to 0 once the month is funded; the transfer
+  // should then carry what each following month needs.
+  const needed = monthlyNeeded !== null && monthlyNeeded > 0 ? monthlyNeeded : nextMonthNeeded;
+  if (needed === null || needed <= 0) return coverShortfall();
+
+  return { amount: Math.ceil(needed), recurrence: 'monthly', endDate: target.date };
 }
 
 export interface GoalProgress {

@@ -15,6 +15,26 @@ export interface GoalReminderConfig {
   sourceAccountId: string;
   dayOfMonth: number;
   amount: number;
+  /** Defaults to 'monthly'. 'once' is a single transfer that does not repeat. */
+  recurrence?: 'monthly' | 'once';
+  /** Date the reminder should stop at; ignored when it is before the first run. */
+  endDate?: string | null;
+}
+
+/**
+ * `startDate`/`endDate` for a config. A one-off runs on a single day, so both
+ * ends are that day; a repeating one keeps the target date when it names one.
+ * An end before the first run is dropped — it would leave a reminder with no
+ * occurrences at all.
+ */
+function reminderDates(
+  config: GoalReminderConfig,
+  today?: Date
+): { startDate: string; endDate: string | null } {
+  const startDate = computeReminderStartDate(config.dayOfMonth, today);
+  if (config.recurrence === 'once') return { startDate, endDate: startDate };
+  const endDate = config.endDate && config.endDate >= startDate ? config.endDate : null;
+  return { startDate, endDate };
 }
 
 // First occurrence of a monthly reminder: this month if the day is still ahead,
@@ -78,13 +98,22 @@ export function buildReminderMarkers(params: {
   reuseIds?: string[];
 }): ZenReminderMarker[] {
   const { reminder, now } = params;
-  const count = params.count ?? REMINDER_MARKER_HORIZON;
   const reuseIds = params.reuseIds ?? [];
+  // A reminder with no interval runs once; a dated one stops at its endDate.
+  const once = reminder.interval === null;
+  const horizon = once ? 1 : params.count ?? REMINDER_MARKER_HORIZON;
 
-  return Array.from({ length: count }, (_, index) => ({
+  const dates: string[] = [];
+  for (let index = 0; index < horizon; index += 1) {
+    const date = once ? reminder.startDate : addMonthsClamped(reminder.startDate, index);
+    if (reminder.endDate && date > reminder.endDate) break;
+    dates.push(date);
+  }
+
+  return dates.map((date, index) => ({
     id: reuseIds[index] ?? crypto.randomUUID(),
     reminder: reminder.id,
-    date: addMonthsClamped(reminder.startDate, index),
+    date,
     state: 'planned' as const,
     isForecast: false,
     income: reminder.income,
@@ -128,6 +157,8 @@ export function buildGoalReminder(params: {
   const now = params.now ?? Math.floor(Date.now() / 1000);
   const isTransfer = config.type === 'transfer';
   assertTransferSource(config, walletId);
+  const once = config.recurrence === 'once';
+  const dates = reminderDates(config, params.today);
 
   return {
     id: params.id ?? crypto.randomUUID(),
@@ -144,14 +175,14 @@ export function buildGoalReminder(params: {
     merchant: null,
     comment: null,
     payee: null,
-    interval: 'month',
-    step: 1,
+    interval: once ? null : 'month',
+    step: once ? null : 1,
     // The recurrence day travels in startDate. ZenMoney overwrites `points` with
     // [0] for a monthly reminder, so sending the day here would only make the
     // local copy disagree with what the server actually stored.
-    points: [0],
-    startDate: computeReminderStartDate(config.dayOfMonth, params.today),
-    endDate: null,
+    points: once ? null : [0],
+    startDate: dates.startDate,
+    endDate: dates.endDate,
     // A goal's funding transfer is a planned move between the user's own
     // accounts, not something to be pinged about.
     notify: false,
@@ -294,6 +325,8 @@ export function applyGoalReminderConfig(
   const isTransfer = config.type === 'transfer';
   const { walletId, walletInstrument, sourceInstrument } = target;
   assertTransferSource(config, walletId);
+  const once = config.recurrence === 'once';
+  const dates = reminderDates(config, today);
   return {
     ...reminder,
     income: config.amount,
@@ -315,8 +348,11 @@ export function applyGoalReminderConfig(
     // from elsewhere — stops notifying once it is edited or bulk-synced.
     notify: false,
     // See buildGoalReminder — startDate carries the day, ZenMoney zeroes points.
-    points: [0],
-    startDate: computeReminderStartDate(config.dayOfMonth, today),
+    interval: once ? null : 'month',
+    step: once ? null : 1,
+    points: once ? null : [0],
+    startDate: dates.startDate,
+    endDate: dates.endDate,
     changed: now,
   };
 }

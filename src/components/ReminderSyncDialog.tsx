@@ -9,8 +9,12 @@ export interface ReminderPlan {
   categoryId: string;
   categoryTitle: string;
   action: ReminderPlanAction;
-  /** Monthly contribution the reminder should carry; null when it cannot be planned. */
+  /** Contribution the reminder should carry; null when it cannot be planned. */
   amount: number | null;
+  /** 'once' covers an overdrawn goal with a single transfer instead of a standing one. */
+  recurrence?: 'monthly' | 'once';
+  /** Date the transfers stop, when the goal's target names one. */
+  endDate?: string;
   /** What the reminder holds today, for the "update" case. */
   current: { dayOfMonth: number; amount: number; sourceTitle: string } | null;
   /** Why a goal is being skipped. */
@@ -70,7 +74,11 @@ export function ReminderSyncDialog({
 
   const describe = (plan: ReminderPlan) => {
     if (plan.action === 'skip') return plan.reason ?? 'Nothing to plan';
-    const target = `${plan.amount?.toLocaleString()} ${currency}/mo on day ${defaults.dayOfMonth}`;
+    const amount = `${plan.amount?.toLocaleString()} ${currency}`;
+    const target =
+      plan.recurrence === 'once'
+        ? `one-off ${amount} on day ${defaults.dayOfMonth}`
+        : `${amount}/mo on day ${defaults.dayOfMonth}${plan.endDate ? ` until ${plan.endDate}` : ''}`;
     if (plan.action === 'create') return `New — ${target}`;
     const from = plan.current;
     if (!from) return target;

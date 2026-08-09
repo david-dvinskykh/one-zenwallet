@@ -14,7 +14,7 @@ import {
   plannedMarkersFor,
   REMINDER_MARKER_HORIZON,
 } from '../../src/utils/goalReminders';
-import { reminderDayOfMonth } from '../../src/utils/goalMath';
+import { planGoalContribution, reminderDayOfMonth } from '../../src/utils/goalMath';
 
 // Never touch a real developer's session state.
 const stateDir = path.join(os.tmpdir(), `one-zenwallet-mcp-test-${process.pid}`);
@@ -313,6 +313,72 @@ assert.throws(
     ),
   /other than the goal wallet/,
   'a wallet-to-itself "transfer" is refused rather than saved as income'
+);
+
+// --- planning a contribution ------------------------------------------------
+const overdrawn = { categoryId: 'tag-x', categoryTitle: 'X', amount: -120.4, transactions: [] };
+const funded = { categoryId: 'tag-y', categoryTitle: 'Y', amount: 500, transactions: [] };
+const PERIOD = '2026-08-01';
+
+assert.deepEqual(
+  planGoalContribution(overdrawn, null, PERIOD),
+  { amount: 121, recurrence: 'once' },
+  'an overdrawn goal with no target earns a single transfer for the shortfall'
+);
+assert.equal(
+  planGoalContribution(funded, null, PERIOD),
+  null,
+  'a goal that is neither targeted nor overdrawn has nothing to fund'
+);
+assert.deepEqual(
+  planGoalContribution(overdrawn, { type: 'one_time', amount: 0, date: '2026-12-01' }, PERIOD),
+  { amount: 25, recurrence: 'monthly', endDate: '2026-12-01' },
+  'a zero target with a date spreads just the shortfall over the months left'
+);
+assert.deepEqual(
+  planGoalContribution(overdrawn, { type: 'one_time', amount: 380, date: '2026-12-01' }, PERIOD),
+  { amount: 101, recurrence: 'monthly', endDate: '2026-12-01' },
+  'and a real target spreads the target plus the shortfall'
+);
+assert.deepEqual(
+  planGoalContribution(overdrawn, { type: 'one_time', amount: 100, date: '2020-01-01' }, PERIOD),
+  { amount: 121, recurrence: 'once' },
+  'a target whose date has passed falls back to covering the shortfall once'
+);
+
+// --- a one-off transfer carries its end date --------------------------------
+const oneOff = buildGoalReminder({
+  categoryId: 'tag-trip',
+  config: { type: 'transfer', sourceAccountId: 'salary-1', dayOfMonth: 5, amount: 121, recurrence: 'once' },
+  walletId: 'wallet-1',
+  walletInstrument: 1,
+  sourceInstrument: 1,
+  userId: 7,
+  now: store.nextChanged(),
+});
+assert.equal(oneOff.interval, null, 'a one-off does not repeat');
+assert.equal(oneOff.endDate, oneOff.startDate, 'and ends on the day it runs');
+assert.deepEqual(buildReminderMarkers({ reminder: oneOff, now: store.nextChanged() }).map((m) => m.date),
+  [oneOff.startDate], 'so it has exactly one occurrence');
+
+const bounded = buildGoalReminder({
+  categoryId: 'tag-trip',
+  config: {
+    type: 'transfer', sourceAccountId: 'salary-1', dayOfMonth: 5, amount: 25,
+    recurrence: 'monthly', endDate: '2026-12-05',
+  },
+  walletId: 'wallet-1',
+  walletInstrument: 1,
+  sourceInstrument: 1,
+  userId: 7,
+  now: store.nextChanged(),
+  today: new Date('2026-08-01T00:00:00Z'),
+});
+assert.equal(bounded.endDate, '2026-12-05', 'a dated target stops the reminder at its date');
+assert.deepEqual(
+  buildReminderMarkers({ reminder: bounded, now: store.nextChanged() }).map((m) => m.date),
+  ['2026-08-05', '2026-09-05', '2026-10-05', '2026-11-05', '2026-12-05'],
+  'and the occurrences stop there rather than running the full horizon'
 );
 
 // --- clearing --------------------------------------------------------------
