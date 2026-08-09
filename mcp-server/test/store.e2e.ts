@@ -210,6 +210,7 @@ assert.equal(
 // --- a recurring transfer reminder reaches ZenMoney ------------------------
 const transferReminder = buildGoalReminder({
   categoryId: 'tag-trip',
+  categoryTitle: 'Trip',
   config: { type: 'transfer', sourceAccountId: 'salary-1', dayOfMonth: 5, amount: 250 },
   walletId: 'wallet-1',
   walletInstrument: 1,
@@ -237,6 +238,8 @@ assert.ok(
 );
 assert.equal(transferReminder.notify, false, 'a funding transfer does not notify');
 assert.ok(markers.every((m) => m.notify === false), 'and neither do its occurrences');
+assert.equal(transferReminder.comment, 'Trip', 'the comment names the goal it funds');
+assert.ok(markers.every((m) => m.comment === 'Trip'), 'and the occurrences carry it too');
 
 await store.push({ reminder: [transferReminder], reminderMarker: markers });
 assert.equal(
@@ -279,11 +282,12 @@ const strayReminder = { ...transferReminder, incomeAccount: 'salary-1', outcomeA
 const rerouted = applyGoalReminderConfig(
   strayReminder,
   { type: 'transfer', sourceAccountId: 'salary-1', dayOfMonth: 9, amount: 300 },
-  { walletId: 'wallet-1', walletInstrument: 1, sourceInstrument: 1 },
+  { walletId: 'wallet-1', walletInstrument: 1, sourceInstrument: 1, categoryTitle: 'Trip' },
   store.nextChanged(strayReminder.changed)
 );
 assert.equal(rerouted.outcomeAccount, 'salary-1', 'an edit re-points the source account');
 assert.equal(rerouted.incomeAccount, 'wallet-1', 'and the destination back to the goal wallet');
+assert.equal(rerouted.comment, 'Trip', 'and an edit keeps the goal named in the comment');
 
 // An edit rewrites the existing occurrences instead of orphaning them.
 const reusedIds = plannedMarkersFor(store.requireData().reminderMarkers, transferReminder.id).map(

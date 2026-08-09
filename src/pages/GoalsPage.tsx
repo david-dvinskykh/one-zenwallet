@@ -34,6 +34,7 @@ import {
   buildReminderMarkers,
   buildSuggestedReminderMap,
   findSameReminderUnassignedTransactions,
+  goalReminderComment,
   plannedMarkersFor,
   type GoalReminderConfig,
 } from '../utils/goalReminders';
@@ -105,6 +106,9 @@ export function GoalsPage() {
   );
 
   const monthStartDay = data?.user?.monthStartDay ?? 1;
+
+  const goalTitleOf = (categoryId: string) =>
+      data?.tags.find((t) => t.id === categoryId)?.title ?? '';
 
   const currentPeriodStart = useMemo(
       () => computeCurrentPeriodStart(monthStartDay),
@@ -202,7 +206,8 @@ export function GoalsPage() {
           existing.outcomeAccount === reminderDefaults.sourceAccountId &&
           existing.incomeAccount === selectedWalletId &&
           (existing.interval === null) === (plan.recurrence === 'once') &&
-          (existing.endDate ?? null) === (plan.recurrence === 'once' ? existing.startDate : plan.endDate ?? null);
+          (existing.endDate ?? null) === (plan.recurrence === 'once' ? existing.startDate : plan.endDate ?? null) &&
+          existing.comment === goalReminderComment(goal.categoryTitle);
 
       return {
         categoryId: goal.categoryId,
@@ -267,11 +272,13 @@ export function GoalsPage() {
                     walletId: selectedWalletId,
                     walletInstrument: walletAccount.instrument,
                     sourceInstrument: sourceAccount.instrument,
+                    categoryTitle: plan.categoryTitle,
                   },
                   nextChangedTimestamp(data.serverTimestamp, existing.changed)
                 )
               : buildGoalReminder({
                   categoryId,
+                  categoryTitle: plan.categoryTitle,
                   config,
                   walletId: selectedWalletId,
                   walletInstrument: walletAccount.instrument,
@@ -365,6 +372,7 @@ export function GoalsPage() {
     const now = nextChangedTimestamp(data.serverTimestamp);
     const newReminder = buildGoalReminder({
       categoryId,
+      categoryTitle: goalTitleOf(categoryId),
       config,
       walletId: selectedWalletId,
       walletInstrument: walletAccount.instrument,
@@ -489,6 +497,7 @@ export function GoalsPage() {
         walletId: selectedWalletId,
         walletInstrument: walletAccount.instrument,
         sourceInstrument: sourceAccount?.instrument ?? null,
+        categoryTitle: goalTitleOf(categoryId),
       },
       now
     );

@@ -129,6 +129,7 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       const now = store.nextChanged();
       const reminder = buildGoalReminder({
         categoryId: tag.id,
+        categoryTitle: tag.title,
         config,
         walletId,
         walletInstrument: wallet.instrument,
@@ -193,6 +194,7 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
           walletId,
           walletInstrument: wallet.instrument,
           sourceInstrument: isTransfer ? sourceInstrument : null,
+          categoryTitle: categoryId ? store.findTag(categoryId).title : undefined,
         },
         store.nextChanged(reminder.changed)
       );

@@ -64,6 +64,19 @@ export function assertTransferSource(config: GoalReminderConfig, walletId: strin
   }
 }
 
+/**
+ * The comment a goal's funding transfer carries.
+ *
+ * A transfer reminder cannot hold a category, so without this it is anonymous
+ * in ZenMoney — several goals funded from the same card look identical. The
+ * comment is also what `computeGoals` matches an incoming transfer on, so the
+ * transactions these reminders produce land on the right goal by themselves.
+ */
+export function goalReminderComment(categoryTitle: string): string | null {
+  const title = categoryTitle.trim();
+  return title.length > 0 ? title : null;
+}
+
 /** Occurrences generated ahead — the start month plus a further year. */
 export const REMINDER_MARKER_HORIZON = 13;
 
@@ -144,6 +157,8 @@ export function plannedMarkersFor(
 
 export function buildGoalReminder(params: {
   categoryId: string;
+  /** Names the goal in the reminder's comment — see `goalReminderComment`. */
+  categoryTitle?: string;
   config: GoalReminderConfig;
   walletId: string;
   walletInstrument: number;
@@ -173,7 +188,7 @@ export function buildGoalReminder(params: {
     // instead — see `buildGoalReminderMap`.
     tag: isTransfer ? null : [categoryId],
     merchant: null,
-    comment: null,
+    comment: params.categoryTitle ? goalReminderComment(params.categoryTitle) : null,
     payee: null,
     interval: once ? null : 'month',
     step: once ? null : 1,
@@ -313,6 +328,8 @@ export interface GoalReminderTarget {
   walletInstrument: number;
   /** Currency of `config.sourceAccountId`; null for a non-transfer. */
   sourceInstrument: number | null;
+  /** Rewrites the comment to name the goal. Omit to leave the comment alone. */
+  categoryTitle?: string;
 }
 
 export function applyGoalReminderConfig(
@@ -323,7 +340,7 @@ export function applyGoalReminderConfig(
   today?: Date
 ): ZenReminder {
   const isTransfer = config.type === 'transfer';
-  const { walletId, walletInstrument, sourceInstrument } = target;
+  const { walletId, walletInstrument, sourceInstrument, categoryTitle } = target;
   assertTransferSource(config, walletId);
   const once = config.recurrence === 'once';
   const dates = reminderDates(config, today);
@@ -347,6 +364,7 @@ export function applyGoalReminderConfig(
     // Cleared here too, so a reminder created before this default — or linked
     // from elsewhere — stops notifying once it is edited or bulk-synced.
     notify: false,
+    comment: categoryTitle ? goalReminderComment(categoryTitle) : reminder.comment,
     // See buildGoalReminder — startDate carries the day, ZenMoney zeroes points.
     interval: once ? null : 'month',
     step: once ? null : 1,
