@@ -7,7 +7,13 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ZenStore } from '../src/store';
-import { applyGoalReminderConfig, buildGoalReminder } from '../../src/utils/goalReminders';
+import {
+  applyGoalReminderConfig,
+  buildGoalReminder,
+  buildReminderMarkers,
+  plannedMarkersFor,
+  REMINDER_MARKER_HORIZON,
+} from '../../src/utils/goalReminders';
 import { reminderDayOfMonth } from '../../src/utils/goalMath';
 
 // Never touch a real developer's session state.
@@ -221,7 +227,26 @@ await assert.rejects(
   'ZenMoney refuses a category on a transfer reminder, and the failure surfaces'
 );
 
-await store.push({ reminder: [transferReminder] });
+const markers = buildReminderMarkers({ reminder: transferReminder, now: store.nextChanged() });
+assert.equal(markers.length, REMINDER_MARKER_HORIZON, 'a year of occurrences is generated ahead');
+assert.equal(markers[0].date, transferReminder.startDate, 'the first occurrence is the start date');
+assert.equal(markers[1].date, '2026-10-05', 'and the rest step a month at a time');
+assert.ok(
+  markers.every((m) => m.reminder === transferReminder.id && m.state === 'planned'),
+  'every marker points at its reminder and is planned'
+);
+
+await store.push({ reminder: [transferReminder], reminderMarker: markers });
+assert.equal(
+  db.reminderMarker.filter((m) => m.reminder === transferReminder.id).length,
+  REMINDER_MARKER_HORIZON,
+  'the occurrences reach ZenMoney — without them the reminder is stored but never scheduled'
+);
+assert.equal(
+  store.markerToReminderId().get(markers[0].id),
+  transferReminder.id,
+  'and land in the snapshot straight away'
+);
 await store.syncGoalReminderLinks({ ...store.goalReminderLinks(), 'tag-trip': transferReminder.id });
 await store.sync();
 assert.ok(
@@ -257,6 +282,25 @@ const rerouted = applyGoalReminderConfig(
 );
 assert.equal(rerouted.outcomeAccount, 'salary-1', 'an edit re-points the source account');
 assert.equal(rerouted.incomeAccount, 'wallet-1', 'and the destination back to the goal wallet');
+
+// An edit rewrites the existing occurrences instead of orphaning them.
+const reusedIds = plannedMarkersFor(store.requireData().reminderMarkers, transferReminder.id).map(
+  (m) => m.id
+);
+const rewritten = buildReminderMarkers({
+  reminder: rerouted,
+  now: store.nextChanged(),
+  reuseIds: reusedIds,
+});
+assert.deepEqual(
+  rewritten.map((m) => m.id),
+  reusedIds,
+  'the same marker ids are reused, so no duplicate occurrences pile up'
+);
+assert.ok(
+  rewritten.every((m) => m.income === 300 && m.incomeAccount === 'wallet-1'),
+  'and they carry the edited amount and destination'
+);
 
 assert.throws(
   () =>

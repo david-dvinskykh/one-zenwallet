@@ -35,7 +35,7 @@ export interface ZenDataDiff {
 /** Entities just pushed to ZenMoney, to be folded back into the local snapshot. */
 export type ZenLocalChanges = Pick<
   ZenDataDiff,
-  'accounts' | 'tags' | 'transactions' | 'reminders'
+  'accounts' | 'tags' | 'transactions' | 'reminders' | 'reminderMarkers'
 >;
 
 export function toZenDataDiff(diff: ZenDiffResponse): ZenDataDiff {

@@ -44,6 +44,75 @@ export function assertTransferSource(config: GoalReminderConfig, walletId: strin
   }
 }
 
+/** Occurrences generated ahead — the start month plus a further year. */
+export const REMINDER_MARKER_HORIZON = 13;
+
+/** Same day of the month, `months` later, clamped to the month's length. */
+function addMonthsClamped(isoDate: string, months: number): string {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const monthIndex = month - 1 + months;
+  const targetYear = year + Math.floor(monthIndex / 12);
+  const targetMonth = ((monthIndex % 12) + 12) % 12;
+  const daysInMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const targetDay = Math.min(day, daysInMonth);
+  return [
+    String(targetYear),
+    String(targetMonth + 1).padStart(2, '0'),
+    String(targetDay).padStart(2, '0'),
+  ].join('-');
+}
+
+/**
+ * The scheduled occurrences of a monthly reminder.
+ *
+ * ZenMoney stores a reminder as the recurrence rule alone and does not expand
+ * it — the client owns the markers. A reminder pushed on its own is accepted
+ * with a 200 and then shows up nowhere, which is exactly what "the transfer was
+ * not saved" looks like. Push these alongside it.
+ */
+export function buildReminderMarkers(params: {
+  reminder: ZenReminder;
+  now: number;
+  count?: number;
+  /** Ids of existing markers to rewrite in place, so an update does not orphan them. */
+  reuseIds?: string[];
+}): ZenReminderMarker[] {
+  const { reminder, now } = params;
+  const count = params.count ?? REMINDER_MARKER_HORIZON;
+  const reuseIds = params.reuseIds ?? [];
+
+  return Array.from({ length: count }, (_, index) => ({
+    id: reuseIds[index] ?? crypto.randomUUID(),
+    reminder: reminder.id,
+    date: addMonthsClamped(reminder.startDate, index),
+    state: 'planned' as const,
+    isForecast: false,
+    income: reminder.income,
+    incomeAccount: reminder.incomeAccount,
+    incomeInstrument: reminder.incomeInstrument,
+    outcome: reminder.outcome,
+    outcomeAccount: reminder.outcomeAccount,
+    outcomeInstrument: reminder.outcomeInstrument,
+    tag: reminder.tag,
+    merchant: reminder.merchant,
+    payee: reminder.payee,
+    comment: reminder.comment,
+    notify: reminder.notify,
+    changed: now,
+    user: reminder.user,
+  }));
+}
+
+/** Planned markers already generated for a reminder, oldest first. */
+export function plannedMarkersFor(
+  markers: ZenReminderMarker[],
+  reminderId: string
+): ZenReminderMarker[] {
+  return markers
+    .filter((m) => m.reminder === reminderId && m.state === 'planned')
+    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+}
+
 export function buildGoalReminder(params: {
   categoryId: string;
   config: GoalReminderConfig;

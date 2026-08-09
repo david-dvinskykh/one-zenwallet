@@ -104,9 +104,30 @@ export interface ZenReminder {
   deleted?: boolean;
 }
 
+/**
+ * One scheduled occurrence of a `ZenReminder`. The reminder itself is only the
+ * recurrence rule — ZenMoney does not expand it server-side, so a reminder
+ * pushed without markers is stored but never appears anywhere.
+ */
 export interface ZenReminderMarker {
   id: string;
   reminder: string; // id of the parent ZenReminder
+  date: string; // YYYY-MM-DD of this occurrence
+  state: 'planned' | 'processed' | 'deleted';
+  isForecast: boolean;
+  income: number;
+  incomeAccount: string;
+  incomeInstrument: number;
+  outcome: number;
+  outcomeAccount: string;
+  outcomeInstrument: number;
+  tag: string[] | null;
+  merchant: string | null;
+  payee: string | null;
+  comment: string | null;
+  notify: boolean;
+  changed: number;
+  user: number;
 }
 
 export interface ZenUser {

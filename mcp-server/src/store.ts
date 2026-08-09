@@ -28,6 +28,7 @@ import type {
   GoalTarget,
   ZenAccount,
   ZenReminder,
+  ZenReminderMarker,
   ZenTag,
   ZenTransaction,
 } from '../../src/types/zenmoney';
@@ -191,6 +192,7 @@ export class ZenStore {
       tags: patch.tag as ZenTag[] | undefined,
       transactions: patch.transaction as ZenTransaction[] | undefined,
       reminders: patch.reminder as ZenReminder[] | undefined,
+      reminderMarkers: patch.reminderMarker as ZenReminderMarker[] | undefined,
     });
   }
 

@@ -27,8 +27,10 @@ import {
   buildGoalReminder,
   buildGoalReminderMap,
   buildMarkerToReminderMap,
+  buildReminderMarkers,
   buildSuggestedReminderMap,
   findSameReminderUnassignedTransactions,
+  plannedMarkersFor,
   type GoalReminderConfig,
 } from '../utils/goalReminders';
 import { pushZenmoneyDiff } from '../api/zenmoney';
@@ -200,8 +202,13 @@ export function GoalsPage() {
           newReminder,
         ]
       : [newReminder];
-    await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: reminderPatch });
-    const changes: ZenLocalChanges = { reminders: reminderPatch };
+    // Without markers ZenMoney stores the rule and schedules nothing.
+    const markers = buildReminderMarkers({ reminder: newReminder, now });
+    await pushZenmoneyDiff(token, data.serverTimestamp, {
+      reminder: reminderPatch,
+      reminderMarker: markers,
+    });
+    const changes: ZenLocalChanges = { reminders: reminderPatch, reminderMarkers: markers };
 
     // The tag set above will not persist on a transfer reminder, so also record
     // the link in the goalReminders map so the goal recognizes it.
@@ -310,8 +317,19 @@ export function GoalsPage() {
       ? base
       : { ...base, tag: Array.from(new Set([...(base.tag ?? []), categoryId])) };
 
-    await pushZenmoneyDiff(token, data.serverTimestamp, { reminder: [updated] });
-    const changes: ZenLocalChanges = { reminders: [updated] };
+    // The markers carry their own copy of the amount, accounts and dates, so an
+    // edit has to rewrite them too — in place, reusing the existing ids, or the
+    // old occurrences would linger with the old figures.
+    const markers = buildReminderMarkers({
+      reminder: updated,
+      now,
+      reuseIds: plannedMarkersFor(data.reminderMarkers, updated.id).map((m) => m.id),
+    });
+    await pushZenmoneyDiff(token, data.serverTimestamp, {
+      reminder: [updated],
+      reminderMarker: markers,
+    });
+    const changes: ZenLocalChanges = { reminders: [updated], reminderMarkers: markers };
 
     const dataAccountId = getDataAccount(data.accounts)?.id ?? null;
     const currentLinks = parseGoalRemindersFromReminders(data.reminders, dataAccountId);

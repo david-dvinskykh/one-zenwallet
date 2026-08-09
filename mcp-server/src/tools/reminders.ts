@@ -3,6 +3,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   applyGoalReminderConfig,
   buildGoalReminder,
+  buildReminderMarkers,
+  plannedMarkersFor,
   type GoalReminderConfig,
 } from '../../../src/utils/goalReminders';
 import { reminderDayOfMonth } from '../../../src/utils/goalMath';
@@ -140,6 +142,8 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
         reminder: existing
           ? [{ ...existing, deleted: true, changed: store.nextChanged(existing.changed) }, reminder]
           : [reminder],
+        // ZenMoney does not expand the recurrence itself — see buildReminderMarkers.
+        reminderMarker: buildReminderMarkers({ reminder, now }),
       });
 
       if (config.type === 'transfer') {
@@ -199,7 +203,14 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
           ? { ...base, tag: Array.from(new Set([...(base.tag ?? []), categoryId])) }
           : base;
 
-      await store.push({ reminder: [updated] });
+      await store.push({
+        reminder: [updated],
+        reminderMarker: buildReminderMarkers({
+          reminder: updated,
+          now: updated.changed,
+          reuseIds: plannedMarkersFor(data.reminderMarkers, updated.id).map((m) => m.id),
+        }),
+      });
       if (categoryId && isTransfer !== (links[categoryId] === reminder.id)) {
         const next = { ...links };
         if (isTransfer) next[categoryId] = reminder.id;
