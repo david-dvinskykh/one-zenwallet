@@ -1527,6 +1527,7 @@ function GoalCard({
                 </span>
                 <input
                   type="number"
+                  step="any"
                   className="goal-target-input"
                   placeholder="0"
                   value={target?.amount || ''}
@@ -1604,7 +1605,7 @@ function GoalCard({
               <span>📋 Monthly reminder</span>
               {existingReminder && (
                 <span className="goal-reminder-badge">
-                  Day {reminderDayOfMonth(existingReminder)} · {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo
+                  Day {reminderDayOfMonth(existingReminder)} · {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 2 })} {currency}/mo
                 </span>
               )}
             </div>
@@ -1642,6 +1643,7 @@ function GoalCard({
                       <span className="goal-target-label">Amount</span>
                       <input
                         type="number"
+                        step="any"
                         className="goal-target-input"
                         value={reminderAmount || ''}
                         onChange={(e) => setReminderAmount(parseFloat(e.target.value) || 0)}
@@ -1696,7 +1698,7 @@ function GoalCard({
                 <div className="goal-reminder-existing">
                   <span>
                     {existingReminder.incomeAccount === existingReminder.outcomeAccount ? '➕ Income' : '🔄 Transfer'}
-                    {' '}on day {reminderDayOfMonth(existingReminder)} — {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo
+                    {' '}on day {reminderDayOfMonth(existingReminder)} — {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 2 })} {currency}/mo
                     {existingReminder.endDate && <> until {existingReminder.endDate}</>}
                     {existingReminder.incomeAccount !== existingReminder.outcomeAccount && (
                       <span className="goal-reminder-route">
@@ -1749,7 +1751,7 @@ function GoalCard({
                   <div className="goal-reminder-suggestion">
                     <span>
                       {suggestedReminder.incomeAccount === suggestedReminder.outcomeAccount ? '➕' : '🔄'}{' '}
-                      Reminder found (day {reminderDayOfMonth(suggestedReminder)} · {suggestedReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo)
+                      Reminder found (day {reminderDayOfMonth(suggestedReminder)} · {suggestedReminder.income.toLocaleString(undefined, { maximumFractionDigits: 2 })} {currency}/mo)
                       {suggestedReminder.incomeAccount !== suggestedReminder.outcomeAccount && (
                         <span className="goal-reminder-route">
                           {' '}({accountTitle(suggestedReminder.outcomeAccount)} → {accountTitle(suggestedReminder.incomeAccount)})
@@ -1854,6 +1856,7 @@ function GoalCard({
                     <span className="goal-target-label">Amount</span>
                     <input
                       type="number"
+                      step="any"
                       className="goal-target-input"
                       placeholder={String(Math.ceil(Math.max(0, reminderAmount || 0)))}
                       value={reminderAmount || ''}

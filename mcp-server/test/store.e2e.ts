@@ -351,6 +351,11 @@ assert.deepEqual(
   { amount: 121, recurrence: 'once' },
   'a target whose date has passed falls back to covering the shortfall once'
 );
+assert.deepEqual(
+  planGoalContribution(funded, { type: 'fixed_monthly', amount: 149.99 }, PERIOD),
+  { amount: 149.99, recurrence: 'monthly' },
+  'a fixed monthly payment is transferred exactly as it was set, not rounded up'
+);
 
 // --- a one-off transfer carries its end date --------------------------------
 const oneOff = buildGoalReminder({

@@ -80,7 +80,10 @@ export function ReminderSyncDialog({
 
   const describe = (plan: ReminderPlan) => {
     if (plan.action === 'skip') return plan.reason ?? 'Nothing to plan';
-    const amount = `${plan.amount?.toLocaleString()} ${currency}`;
+    // Cents shown when there are any: a fixed monthly payment is carried
+    // through exactly as it was set, so the row has to say so.
+    const money = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const amount = `${money(plan.amount ?? 0)} ${currency}`;
     const until = (date?: string | null) => (date ? ` until ${date}` : ' with no end date');
     const target =
       plan.recurrence === 'once'
@@ -89,7 +92,7 @@ export function ReminderSyncDialog({
     if (plan.action === 'create') return `New — ${target}`;
     const from = plan.current;
     if (!from) return target;
-    return `${from.amount.toLocaleString()} ${currency}/mo on day ${from.dayOfMonth}${until(from.endDate)} (${from.sourceTitle}) → ${target}`;
+    return `${money(from.amount)} ${currency}/mo on day ${from.dayOfMonth}${until(from.endDate)} (${from.sourceTitle}) → ${target}`;
   };
 
   return (

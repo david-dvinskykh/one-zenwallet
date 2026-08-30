@@ -85,7 +85,11 @@ export function reminderDayOfMonth(reminder: ZenReminder): number {
 }
 
 export interface GoalContributionPlan {
-  /** Rounded up — a transfer that under-funds by cents misses the target. */
+  /**
+   * A computed contribution is rounded up — a transfer that under-funds by
+   * cents misses the target. A fixed monthly target is passed through as the
+   * user typed it: it is the payment itself, not a figure spread over months.
+   */
   amount: number;
   /** 'once' is a single transfer that does not repeat. */
   recurrence: 'monthly' | 'once';
@@ -115,7 +119,10 @@ export function planGoalContribution(
   if (!target || (target.amount <= 0 && !target.date)) return coverShortfall();
 
   if ((target.type ?? 'one_time') === 'fixed_monthly') {
-    const amount = Math.ceil(target.amount);
+    // Not rounded: this is the amount the user set as the monthly payment, so
+    // the transfer has to carry exactly it. Rounding is for the figures this
+    // function derives itself, where a cent short misses the target.
+    const amount = target.amount;
     return amount > 0 ? { amount, recurrence: 'monthly' } : coverShortfall();
   }
 

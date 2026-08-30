@@ -107,6 +107,9 @@ targeted nor overdrawn is skipped, and the row says why.
 - An overdrawn goal with no usable target (none set, or its date has passed)
   gets `recurrence: 'once'` for the shortfall — a single transfer, not a
   standing order.
+- A `fixed_monthly` target is passed through **unrounded** — it is the payment
+  the user set, not a figure spread over months. Only the amounts this function
+  derives itself are rounded up, where a cent short misses the target.
 - A dated target sets `endDate`, so the transfers stop instead of running on
   past the date.
 
