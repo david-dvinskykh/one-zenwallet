@@ -16,7 +16,13 @@ export interface ReminderPlan {
   /** Date the transfers stop, when the goal's target names one. */
   endDate?: string;
   /** What the reminder holds today, for the "update" case. */
-  current: { dayOfMonth: number; amount: number; sourceTitle: string } | null;
+  current: {
+    dayOfMonth: number;
+    amount: number;
+    sourceTitle: string;
+    /** Where it stops today — so a changed target date is visible in the row. */
+    endDate: string | null;
+  } | null;
   /** Why a goal is being skipped. */
   reason?: string;
 }
@@ -75,14 +81,15 @@ export function ReminderSyncDialog({
   const describe = (plan: ReminderPlan) => {
     if (plan.action === 'skip') return plan.reason ?? 'Nothing to plan';
     const amount = `${plan.amount?.toLocaleString()} ${currency}`;
+    const until = (date?: string | null) => (date ? ` until ${date}` : ' with no end date');
     const target =
       plan.recurrence === 'once'
         ? `one-off ${amount} on day ${defaults.dayOfMonth}`
-        : `${amount}/mo on day ${defaults.dayOfMonth}${plan.endDate ? ` until ${plan.endDate}` : ''}`;
+        : `${amount}/mo on day ${defaults.dayOfMonth}${until(plan.endDate)}`;
     if (plan.action === 'create') return `New — ${target}`;
     const from = plan.current;
     if (!from) return target;
-    return `${from.amount.toLocaleString()} ${currency}/mo on day ${from.dayOfMonth} (${from.sourceTitle}) → ${target}`;
+    return `${from.amount.toLocaleString()} ${currency}/mo on day ${from.dayOfMonth}${until(from.endDate)} (${from.sourceTitle}) → ${target}`;
   };
 
   return (

@@ -114,8 +114,8 @@ Mirrors the browser's localStorage + IndexedDB tiers, in
 | Tool | What it does |
 | --- | --- |
 | `zen_list_goal_reminders` | Linked, suggested and unlinked monthly reminders |
-| `zen_create_goal_reminder` | Monthly transfer or income reminder funding a goal |
-| `zen_update_goal_reminder` | Changes amount, day of month or source account |
+| `zen_create_goal_reminder` | Monthly transfer or income reminder funding a goal; ends on the goal's target date unless `endDate` says otherwise |
+| `zen_update_goal_reminder` | Changes amount, day of month, source account or end date |
 | `zen_delete_goal_reminder` | Deletes it — or only unlinks a display-only transfer link |
 | `zen_link_goal_reminder` | Associates an existing reminder with a goal |
 

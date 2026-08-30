@@ -6,6 +6,7 @@ import type {
   ZenReminderMarker,
   ZenTransaction,
 } from '../types/zenmoney';
+import { reminderDayOfMonth } from './goalMath';
 import { getDataAccount, parseGoalRemindersFromReminders } from './hiddenData';
 
 // A goal's monthly reminder: either a transfer from another account into the
@@ -27,7 +28,7 @@ export interface GoalReminderConfig {
  * An end before the first run is dropped — it would leave a reminder with no
  * occurrences at all.
  */
-function reminderDates(
+export function reminderDates(
   config: GoalReminderConfig,
   today?: Date
 ): { startDate: string; endDate: string | null } {
@@ -153,6 +154,73 @@ export function plannedMarkersFor(
   return markers
     .filter((m) => m.reminder === reminderId && m.state === 'planned')
     .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+}
+
+/**
+ * The occurrences to push for a reminder, cancellations included.
+ *
+ * `buildReminderMarkers` writes only as many occurrences as the reminder still
+ * has, so pulling an end date forward would leave the surplus behind — planned
+ * occurrences past the new end date, still carrying the old amount, which
+ * ZenMoney goes on scheduling. Those are returned with `state: 'deleted'` so a
+ * single push both rewrites the occurrences that remain and cancels the rest.
+ */
+export function syncReminderMarkers(params: {
+  reminder: ZenReminder;
+  now: number;
+  /** Every marker in the snapshot; the reminder's own planned ones are picked out. */
+  markers: ZenReminderMarker[];
+  count?: number;
+}): ZenReminderMarker[] {
+  const { reminder, now, markers } = params;
+  const planned = plannedMarkersFor(markers, reminder.id);
+  const next = buildReminderMarkers({
+    reminder,
+    now,
+    count: params.count,
+    reuseIds: planned.map((m) => m.id),
+  });
+  const cancelled = planned
+    .slice(next.length)
+    .map((marker) => ({ ...marker, state: 'deleted' as const, changed: now }));
+  return [...next, ...cancelled];
+}
+
+/**
+ * Whether a reminder already holds exactly what `config` describes — the test
+ * the bulk sync uses to leave a goal alone.
+ *
+ * The dates are compared against what `reminderDates` would actually write
+ * rather than against the raw config: an end date earlier than the first run is
+ * dropped when the reminder is built, and comparing the raw one would leave the
+ * goal reported as out of date for ever, however often it is synced.
+ */
+export function reminderMatchesConfig(params: {
+  reminder: ZenReminder;
+  config: GoalReminderConfig;
+  /** The wallet the funding transfer has to land in. */
+  walletId: string;
+  /** Expected comment; omit to leave it out of the comparison. */
+  comment?: string | null;
+  today?: Date;
+}): boolean {
+  const { reminder, config, walletId } = params;
+  const isTransfer = config.type === 'transfer';
+  const once = config.recurrence === 'once';
+  const dates = reminderDates(config, params.today);
+
+  return (
+    reminder.income === config.amount &&
+    reminderDayOfMonth(reminder) === config.dayOfMonth &&
+    reminder.incomeAccount === walletId &&
+    reminder.outcomeAccount === (isTransfer ? config.sourceAccountId : walletId) &&
+    (reminder.interval === null) === once &&
+    (reminder.endDate ?? null) === dates.endDate &&
+    // A one-off that has already run has to be moved to its next date; a
+    // repeating one keeps whatever start it was given.
+    (!once || reminder.startDate === dates.startDate) &&
+    (params.comment === undefined || reminder.comment === params.comment)
+  );
 }
 
 export function buildGoalReminder(params: {

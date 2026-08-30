@@ -4,7 +4,7 @@ import {
   applyGoalReminderConfig,
   buildGoalReminder,
   buildReminderMarkers,
-  plannedMarkersFor,
+  syncReminderMarkers,
   type GoalReminderConfig,
 } from '../../../src/utils/goalReminders';
 import { reminderDayOfMonth } from '../../../src/utils/goalMath';
@@ -23,21 +23,53 @@ const reminderConfigShape = {
     .describe('Account id or exact title money is transferred from (required for type=transfer)'),
   dayOfMonth: z.number().int().min(1).max(31).describe('Day of the month the reminder fires'),
   amount: z.number().positive().describe('Amount per month, in the wallet currency'),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'endDate must be YYYY-MM-DD')
+    .nullish()
+    .describe(
+      'Date the reminder stops repeating (YYYY-MM-DD). Defaults to the goal target date, so the transfers stop when the goal is due; pass null for a reminder with no end. Ignored when it falls before the first run.'
+    ),
 };
 
 export function registerReminderTools(server: McpServer, store: ZenStore): void {
-  function resolveConfig(args: {
-    type: 'transfer' | 'income';
-    sourceAccount?: string;
-    dayOfMonth: number;
-    amount: number;
-  }): { config: GoalReminderConfig; sourceInstrument: number } {
+  /**
+   * The reminder's end date: what the caller asked for, or — when it said
+   * nothing — the goal's own target date, so a funding transfer stops when the
+   * goal it funds is due instead of running on for ever.
+   */
+  function resolveEndDate(
+    endDate: string | null | undefined,
+    categoryId: string | null
+  ): string | null {
+    if (endDate !== undefined) return endDate;
+    if (!categoryId) return null;
+    return store.goalTargets()[categoryId]?.date ?? null;
+  }
+
+  function resolveConfig(
+    args: {
+      type: 'transfer' | 'income';
+      sourceAccount?: string;
+      dayOfMonth: number;
+      amount: number;
+      endDate?: string | null;
+    },
+    categoryId: string | null
+  ): { config: GoalReminderConfig; sourceInstrument: number } {
     const walletId = store.requireWalletId();
     const wallet = store.findAccount(walletId);
+    const endDate = resolveEndDate(args.endDate, categoryId);
 
     if (args.type === 'income') {
       return {
-        config: { type: 'income', sourceAccountId: walletId, dayOfMonth: args.dayOfMonth, amount: args.amount },
+        config: {
+          type: 'income',
+          sourceAccountId: walletId,
+          dayOfMonth: args.dayOfMonth,
+          amount: args.amount,
+          endDate,
+        },
         sourceInstrument: wallet.instrument,
       };
     }
@@ -50,7 +82,13 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       throw new ZenError('A transfer reminder needs a source account other than the wallet itself');
     }
     return {
-      config: { type: 'transfer', sourceAccountId: source.id, dayOfMonth: args.dayOfMonth, amount: args.amount },
+      config: {
+        type: 'transfer',
+        sourceAccountId: source.id,
+        dayOfMonth: args.dayOfMonth,
+        amount: args.amount,
+        endDate,
+      },
       sourceInstrument: source.instrument,
     };
   }
@@ -124,7 +162,7 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       const walletId = store.requireWalletId();
       const wallet = store.findAccount(walletId);
       const tag = store.findTag(args.category);
-      const { config, sourceInstrument } = resolveConfig(args);
+      const { config, sourceInstrument } = resolveConfig(args, tag.id);
 
       const now = store.nextChanged();
       const reminder = buildGoalReminder({
@@ -179,11 +217,12 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
       const reminder = data.reminders.find((r) => r.id === args.reminderId && !r.deleted);
       if (!reminder) throw new ZenError(`No reminder with id ${args.reminderId}`);
 
-      const { config, sourceInstrument } = resolveConfig(args);
-      const isTransfer = config.type === 'transfer';
       const links = store.goalReminderLinks();
       const linkedCategoryId = Object.entries(links).find(([, rid]) => rid === reminder.id)?.[0];
       const categoryId = linkedCategoryId ?? reminder.tag?.[0] ?? null;
+
+      const { config, sourceInstrument } = resolveConfig(args, categoryId);
+      const isTransfer = config.type === 'transfer';
 
       const walletId = store.requireWalletId();
       const wallet = store.findAccount(walletId);
@@ -207,10 +246,12 @@ export function registerReminderTools(server: McpServer, store: ZenStore): void 
 
       await store.push({
         reminder: [updated],
-        reminderMarker: buildReminderMarkers({
+        // Rewrites the occurrences in place and cancels the ones that fall past
+        // a newly shortened end date — see syncReminderMarkers.
+        reminderMarker: syncReminderMarkers({
           reminder: updated,
           now: updated.changed,
-          reuseIds: plannedMarkersFor(data.reminderMarkers, updated.id).map((m) => m.id),
+          markers: data.reminderMarkers,
         }),
       });
       if (categoryId && isTransfer !== (links[categoryId] === reminder.id)) {

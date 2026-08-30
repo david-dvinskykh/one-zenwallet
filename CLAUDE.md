@@ -117,6 +117,15 @@ reminder it stops generating once the dates pass `endDate`. `reminderDates`
 drops an `endDate` earlier than the first run — that would leave a reminder with
 no occurrences at all, which is the failure mode described above.
 
+A goal's end date is its target date, everywhere a reminder is written: the bulk
+sync takes it from `planGoalContribution`, and the per-goal form's "Until" field
+defaults to `target.date` (the MCP tools' `endDate` argument defaults to it too,
+and takes `null` for a reminder with no end). So a target date that moves has to
+move the reminder with it — which is what `reminderMatchesConfig` decides. It
+compares against the dates `reminderDates` would actually write rather than the
+raw config, or an `endDate` that gets dropped would leave the goal reported as
+"update" for ever, however often it is synced.
+
 ### Reporting write failures
 
 Reminder create/update/delete/link push straight to ZenMoney instead of going
@@ -157,7 +166,7 @@ clock deliberately runs ahead of the client's — so regressions here fail the t
 - A goal's funding transfer carries the goal's title as its `comment` (`goalReminderComment`). It is the only identification a transfer reminder can have — it cannot hold a category — and it closes the loop with attribution rule 3: the transactions ZenMoney generates from it inherit the comment, so `computeGoals` matches them back to the goal on its own.
 - A goal's funding transfer always runs **source account → selected wallet**: `outcomeAccount` is the account picked in the goal card, `incomeAccount` is the wallet chosen on `WalletSelectPage`. `applyGoalReminderConfig` sets *both* sides, because a reminder that was linked rather than created here starts out pointing somewhere else. `assertTransferSource` rejects a source equal to the wallet — ZenMoney would store that as plain income.
 - A monthly reminder's recurrence day lives in `startDate`, **not** in `points`: ZenMoney derives the schedule from `startDate` and overwrites whatever `points` the client sent with `[0]` (a push of `points: [12]` comes back as `points: [0]`, `startDate` untouched). Build monthly reminders with `points: [0]` so the locally applied copy matches what the server stored, and read the day with `reminderDayOfMonth`, which prefers `startDate`.
-- A `Reminder` is only the recurrence *rule*. ZenMoney does **not** expand it server-side, so a reminder pushed on its own is accepted with a 200, echoed back intact, and then appears nowhere — indistinguishable from a save that silently did nothing. The client owns the occurrences: push `reminderMarker` entities alongside it (`buildReminderMarkers`, `REMINDER_MARKER_HORIZON` months ahead). Editing a reminder must rewrite them too, reusing the existing ids via `plannedMarkersFor`, or the old occurrences linger with the old amounts.
+- A `Reminder` is only the recurrence *rule*. ZenMoney does **not** expand it server-side, so a reminder pushed on its own is accepted with a 200, echoed back intact, and then appears nowhere — indistinguishable from a save that silently did nothing. The client owns the occurrences: push `reminderMarker` entities alongside it (`buildReminderMarkers`, `REMINDER_MARKER_HORIZON` months ahead). Editing a reminder must rewrite them too, or the old occurrences linger with the old amounts — use `syncReminderMarkers`, which reuses the existing ids *and* returns the ones past a newly shortened `endDate` as `state: 'deleted'`. Rewriting alone would leave those behind, still scheduled at the old amount, which is exactly what an end date pulled forward looks like when it appears not to have applied.
 - A transaction's `reminderMarker` field is a `ReminderMarker` entity id (one per occurrence), **not** a `Reminder` id. Resolve via the `reminderMarker` table's `reminder` field to get the parent reminder.
 - `mergeZenData` (`src/utils/zenData.ts`) uses id-keyed Maps so repeated syncs are idempotent.
 - Install with `--legacy-peer-deps` because vite-plugin-pwa peer dep declarations lag behind React 19.

@@ -35,7 +35,9 @@ import {
   buildSuggestedReminderMap,
   findSameReminderUnassignedTransactions,
   goalReminderComment,
-  plannedMarkersFor,
+  reminderDates,
+  reminderMatchesConfig,
+  syncReminderMarkers,
   type GoalReminderConfig,
 } from '../utils/goalReminders';
 import { pushZenmoneyDiff } from '../api/zenmoney';
@@ -178,6 +180,7 @@ export function GoalsPage() {
               dayOfMonth: reminderDayOfMonth(existing),
               amount: existing.income,
               sourceTitle: accountTitleOf(existing.outcomeAccount),
+              endDate: existing.endDate,
             }
           : null;
 
@@ -199,15 +202,29 @@ export function GoalsPage() {
         };
       }
 
+      const config: GoalReminderConfig = {
+        type: 'transfer',
+        sourceAccountId: reminderDefaults.sourceAccountId,
+        dayOfMonth: reminderDefaults.dayOfMonth,
+        amount: plan.amount,
+        recurrence: plan.recurrence,
+        endDate: plan.endDate ?? null,
+      };
+      // The dates the sync would actually write — the goal's target date, minus
+      // the one `reminderDates` drops. Reporting the raw target instead would
+      // both mis-describe the row and, when it is dropped, leave the goal
+      // reported as out of date however often it is synced.
+      const dates = reminderDates(config);
+
       const alreadyRight =
           existing != null &&
-          existing.income === plan.amount &&
-          reminderDayOfMonth(existing) === reminderDefaults.dayOfMonth &&
-          existing.outcomeAccount === reminderDefaults.sourceAccountId &&
-          existing.incomeAccount === selectedWalletId &&
-          (existing.interval === null) === (plan.recurrence === 'once') &&
-          (existing.endDate ?? null) === (plan.recurrence === 'once' ? existing.startDate : plan.endDate ?? null) &&
-          existing.comment === goalReminderComment(goal.categoryTitle);
+          selectedWalletId != null &&
+          reminderMatchesConfig({
+            reminder: existing,
+            config,
+            walletId: selectedWalletId,
+            comment: goalReminderComment(goal.categoryTitle),
+          });
 
       return {
         categoryId: goal.categoryId,
@@ -215,7 +232,7 @@ export function GoalsPage() {
         action: alreadyRight ? ('unchanged' as const) : existing ? ('update' as const) : ('create' as const),
         amount: plan.amount,
         recurrence: plan.recurrence,
-        endDate: plan.endDate,
+        endDate: dates.endDate ?? undefined,
         current,
       };
     });
@@ -288,12 +305,10 @@ export function GoalsPage() {
                 });
 
           reminders.push(reminder);
+          // Cancellations included: a target date pulled forward shortens the
+          // run, and the occurrences past the new end have to go with it.
           markers.push(
-            ...buildReminderMarkers({
-              reminder,
-              now,
-              reuseIds: plannedMarkersFor(data.reminderMarkers, reminder.id).map((m) => m.id),
-            })
+            ...syncReminderMarkers({ reminder, now, markers: data.reminderMarkers })
           );
 
           // A transfer cannot carry its goal as a tag, so the association lives
@@ -509,12 +524,13 @@ export function GoalsPage() {
       : { ...base, tag: Array.from(new Set([...(base.tag ?? []), categoryId])) };
 
     // The markers carry their own copy of the amount, accounts and dates, so an
-    // edit has to rewrite them too — in place, reusing the existing ids, or the
-    // old occurrences would linger with the old figures.
-    const markers = buildReminderMarkers({
+    // edit has to rewrite them too — in place, reusing the existing ids, and
+    // cancelling any that now fall past the end date, or the old occurrences
+    // would linger with the old figures.
+    const markers = syncReminderMarkers({
       reminder: updated,
       now,
-      reuseIds: plannedMarkersFor(data.reminderMarkers, updated.id).map((m) => m.id),
+      markers: data.reminderMarkers,
     });
     await pushZenmoneyDiff(token, data.serverTimestamp, {
       reminder: [updated],
@@ -1387,6 +1403,10 @@ function GoalCard({
   const [reminderSourceId, setReminderSourceId] = useState('');
   const [reminderDay, setReminderDay] = useState(monthStartDay || 1);
   const [reminderAmount, setReminderAmount] = useState(0);
+  // null = follow the goal's target date. A funding transfer should stop when
+  // the goal it funds is due, so the target date is the default rather than
+  // something the user has to copy across by hand; '' means "no end date".
+  const [reminderEndDate, setReminderEndDate] = useState<string | null>(null);
   const [reminderLoading, setReminderLoading] = useState(false);
   const [reminderEditing, setReminderEditing] = useState(false);
   // Deleting a suggested reminder removes a real ZenMoney entity the app does
@@ -1412,6 +1432,8 @@ function GoalCard({
 
   const { thisMonthAdded, monthlyNeeded, nextMonthNeeded, leftAmount, monthlyStatus } =
     computeGoalProgress(goal, target, currentPeriodStart);
+
+  const reminderEnd = reminderEndDate ?? target?.date ?? '';
 
   const updateTarget = (patch: Partial<GoalTarget>) => {
     const base = target ?? { type: 'one_time' as const, amount: 0 };
@@ -1625,6 +1647,15 @@ function GoalCard({
                         onChange={(e) => setReminderAmount(parseFloat(e.target.value) || 0)}
                       />
                     </label>
+                    <label className="goal-target-field">
+                      <span className="goal-target-label">Until</span>
+                      <input
+                        type="date"
+                        className="goal-target-input"
+                        value={reminderEnd}
+                        onChange={(e) => setReminderEndDate(e.target.value)}
+                      />
+                    </label>
                     <button
                       className="btn-text"
                       disabled={reminderLoading || reminderAmount <= 0 || (reminderType === 'transfer' && !reminderSourceId)}
@@ -1638,6 +1669,7 @@ function GoalCard({
                               sourceAccountId: reminderSourceId,
                               dayOfMonth: reminderDay,
                               amount: reminderAmount,
+                              endDate: reminderEnd || null,
                             },
                             goal.categoryId
                           );
@@ -1651,7 +1683,10 @@ function GoalCard({
                     <button
                       className="btn-text"
                       disabled={reminderLoading}
-                      onClick={() => setReminderEditing(false)}
+                      onClick={() => {
+                        setReminderEditing(false);
+                        setReminderEndDate(null);
+                      }}
                     >
                       Cancel
                     </button>
@@ -1662,6 +1697,7 @@ function GoalCard({
                   <span>
                     {existingReminder.incomeAccount === existingReminder.outcomeAccount ? '➕ Income' : '🔄 Transfer'}
                     {' '}on day {reminderDayOfMonth(existingReminder)} — {existingReminder.income.toLocaleString(undefined, { maximumFractionDigits: 0 })} {currency}/mo
+                    {existingReminder.endDate && <> until {existingReminder.endDate}</>}
                     {existingReminder.incomeAccount !== existingReminder.outcomeAccount && (
                       <span className="goal-reminder-route">
                         {' '}({accountTitle(existingReminder.outcomeAccount)} → {accountTitle(existingReminder.incomeAccount)})
@@ -1687,6 +1723,9 @@ function GoalCard({
                       );
                       setReminderDay(reminderDayOfMonth(existingReminder));
                       setReminderAmount(existingReminder.income || 0);
+                      // A reminder with no end of its own picks up the goal's
+                      // target date, which is where it should have stopped.
+                      setReminderEndDate(existingReminder.endDate ?? target?.date ?? '');
                       setReminderEditing(true);
                     }}
                   >
@@ -1821,18 +1860,31 @@ function GoalCard({
                       onChange={(e) => setReminderAmount(parseFloat(e.target.value) || 0)}
                     />
                   </label>
+                  <label className="goal-target-field">
+                    <span className="goal-target-label">Until</span>
+                    <input
+                      type="date"
+                      className="goal-target-input"
+                      value={reminderEnd}
+                      onChange={(e) => setReminderEndDate(e.target.value)}
+                    />
+                  </label>
                   <button
                     className="btn-text"
                     disabled={reminderLoading || reminderAmount <= 0 || (reminderType === 'transfer' && !reminderSourceId)}
                     onClick={async () => {
                       setReminderLoading(true);
                       try {
-                        await onCreateReminder(goal.categoryId, {
+                        const created = await onCreateReminder(goal.categoryId, {
                           type: reminderType,
                           sourceAccountId: reminderSourceId,
                           dayOfMonth: reminderDay,
                           amount: reminderAmount,
+                          endDate: reminderEnd || null,
                         });
+                        // Back to following the goal's target date, so a later
+                        // reminder does not inherit this one's override.
+                        if (created) setReminderEndDate(null);
                       } finally { setReminderLoading(false); }
                     }}
                   >

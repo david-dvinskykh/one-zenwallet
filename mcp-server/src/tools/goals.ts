@@ -14,6 +14,8 @@ export function describeReminder(reminder: ZenReminder, isTransfer: boolean) {
     type: isTransfer ? 'transfer' : 'income',
     sourceAccountId: isTransfer ? reminder.outcomeAccount : null,
     startDate: reminder.startDate,
+    // Where the recurrence stops; null means it runs indefinitely.
+    endDate: reminder.endDate,
     interval: reminder.interval,
   };
 }

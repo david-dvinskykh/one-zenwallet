@@ -12,6 +12,8 @@ import {
   buildGoalReminder,
   buildReminderMarkers,
   plannedMarkersFor,
+  reminderMatchesConfig,
+  syncReminderMarkers,
   REMINDER_MARKER_HORIZON,
 } from '../../src/utils/goalReminders';
 import { planGoalContribution, reminderDayOfMonth } from '../../src/utils/goalMath';
@@ -383,6 +385,92 @@ assert.deepEqual(
   buildReminderMarkers({ reminder: bounded, now: store.nextChanged() }).map((m) => m.date),
   ['2026-08-05', '2026-09-05', '2026-10-05', '2026-11-05', '2026-12-05'],
   'and the occurrences stop there rather than running the full horizon'
+);
+
+// --- an end date that moves -------------------------------------------------
+// The goal's target date is what bounds its funding transfer, so a target that
+// moves has to move the reminder with it — and take the occurrences past the
+// new end with it, which is what a shortened run gets wrong most easily.
+const TODAY = new Date('2026-08-01T00:00:00Z');
+const boundedConfig = {
+  type: 'transfer' as const, sourceAccountId: 'salary-1', dayOfMonth: 5, amount: 25,
+  recurrence: 'monthly' as const, endDate: '2026-12-05',
+};
+assert.equal(
+  reminderMatchesConfig({ reminder: bounded, config: boundedConfig, walletId: 'wallet-1', today: TODAY }),
+  true,
+  'a reminder that already carries the target date needs no update'
+);
+assert.equal(
+  reminderMatchesConfig({
+    reminder: bounded,
+    config: { ...boundedConfig, endDate: '2026-10-05' },
+    walletId: 'wallet-1',
+    today: TODAY,
+  }),
+  false,
+  'and a target date that moved makes the bulk sync see an update'
+);
+assert.equal(
+  reminderMatchesConfig({
+    reminder: { ...bounded, endDate: null },
+    config: { ...boundedConfig, endDate: '2026-07-05' },
+    walletId: 'wallet-1',
+    today: TODAY,
+  }),
+  true,
+  'an end date before the first run is dropped rather than reported for ever'
+);
+
+const boundedMarkers = buildReminderMarkers({ reminder: bounded, now: store.nextChanged() });
+await store.push({ reminder: [bounded], reminderMarker: boundedMarkers });
+
+const shortened = applyGoalReminderConfig(
+  bounded,
+  { ...boundedConfig, endDate: '2026-10-05' },
+  { walletId: 'wallet-1', walletInstrument: 1, sourceInstrument: 1, categoryTitle: 'Trip' },
+  store.nextChanged(bounded.changed),
+  TODAY
+);
+assert.equal(shortened.endDate, '2026-10-05', 'the edit carries the new end date');
+
+const resynced = syncReminderMarkers({
+  reminder: shortened,
+  now: shortened.changed,
+  markers: store.requireData().reminderMarkers,
+});
+assert.deepEqual(
+  resynced.filter((m) => m.state === 'planned').map((m) => m.date),
+  ['2026-08-05', '2026-09-05', '2026-10-05'],
+  'the occurrences that survive are rewritten'
+);
+assert.deepEqual(
+  resynced.filter((m) => m.state === 'deleted').map((m) => m.date),
+  ['2026-11-05', '2026-12-05'],
+  'and the ones past the new end date are cancelled rather than left scheduled'
+);
+assert.deepEqual(
+  resynced.map((m) => m.id).sort(),
+  boundedMarkers.map((m) => m.id).sort(),
+  'all of them in place, so no occurrence is orphaned or duplicated'
+);
+
+await store.push({ reminder: [shortened], reminderMarker: resynced });
+assert.deepEqual(
+  plannedMarkersFor(store.requireData().reminderMarkers, shortened.id).map((m) => m.date),
+  ['2026-08-05', '2026-09-05', '2026-10-05'],
+  'and the snapshot stops scheduling the cancelled ones'
+);
+
+const relengthened = syncReminderMarkers({
+  reminder: { ...shortened, endDate: '2027-01-05' },
+  now: store.nextChanged(shortened.changed),
+  markers: store.requireData().reminderMarkers,
+});
+assert.deepEqual(
+  relengthened.map((m) => m.date),
+  ['2026-08-05', '2026-09-05', '2026-10-05', '2026-11-05', '2026-12-05', '2027-01-05'],
+  'a target date pushed back out generates the occurrences again'
 );
 
 // --- clearing --------------------------------------------------------------
