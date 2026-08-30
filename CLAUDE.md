@@ -95,9 +95,19 @@ every reminder and marker first, pushes them together, then writes the
 instead; each of those does its own `refresh()`.
 
 Each goal's amount comes from its own target via `planGoalContribution`
-(`goalMath.ts`); only the source account and the day are shared, and those two
-live in localStorage as `zen_reminder_defaults`. Only a goal that is neither
-targeted nor overdrawn is skipped, and the row says why.
+(`goalMath.ts`); only the source account, the day and the month the amounts are
+sized for are shared, and those three live in localStorage as
+`zen_reminder_defaults`. Only a goal that is neither targeted nor overdrawn is
+skipped, and the row says why.
+
+The month is a choice — "Amount for: this month / next month on" — because a
+transfer set up today may first fire this month or only next. It is not the
+caller's alone: a goal whose share for the current month is already in
+(`monthlyStatus === 'met'`) is sized for next month whichever way the dialog is
+set, since funding this month again would pay it twice; `planGoalContribution`
+reports the month it actually used as `basis`, and the row says so when it
+differs from the one asked for. Either way it falls back to the other month when
+its own figure is empty — a dated target may leave no month after this one.
 
 `planGoalContribution` returns a recurrence as well as an amount:
 - A **negative balance is part of what has to be transferred** — it enlarges

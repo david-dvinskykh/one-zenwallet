@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ZenAccount } from '../types/zenmoney';
+import type { MonthBasis } from '../utils/goalMath';
 import type { ReminderDefaults } from '../utils/storage';
 import './ReminderSyncDialog.css';
 
@@ -15,6 +16,8 @@ export interface ReminderPlan {
   recurrence?: 'monthly' | 'once';
   /** Date the transfers stop, when the goal's target names one. */
   endDate?: string;
+  /** Month the amount was taken from — 'next' when this month is already in. */
+  basis?: MonthBasis;
   /** What the reminder holds today, for the "update" case. */
   current: {
     dayOfMonth: number;
@@ -89,10 +92,19 @@ export function ReminderSyncDialog({
       plan.recurrence === 'once'
         ? `one-off ${amount} on day ${defaults.dayOfMonth}`
         : `${amount}/mo on day ${defaults.dayOfMonth}${until(plan.endDate)}`;
-    if (plan.action === 'create') return `New — ${target}`;
+    // Say when a goal's amount does not come from the month the rest do — its
+    // share for this month is already paid, or the target leaves no month after
+    // this one.
+    const note =
+      plan.basis && plan.basis !== defaults.amountBasis
+        ? plan.basis === 'next'
+          ? ' — this month is already funded, so next month\u2019s amount'
+          : ' — no month left after this one, so this month\u2019s amount'
+        : '';
+    if (plan.action === 'create') return `New — ${target}${note}`;
     const from = plan.current;
     if (!from) return target;
-    return `${money(from.amount)} ${currency}/mo on day ${from.dayOfMonth}${until(from.endDate)} (${from.sourceTitle}) → ${target}`;
+    return `${money(from.amount)} ${currency}/mo on day ${from.dayOfMonth}${until(from.endDate)} (${from.sourceTitle}) → ${target}${note}`;
   };
 
   return (
@@ -108,7 +120,9 @@ export function ReminderSyncDialog({
           <h2>Recurring transfers</h2>
           <p>
             Each goal is funded by a monthly transfer into {walletTitle}. The amount comes from the
-            goal's own target; the account and the day below apply to all of them.
+            goal's own target; the account, the day and the month it is sized for apply to all of
+            them. A goal whose share for this month is already in takes next month's amount
+            whichever you pick — funding this month again would pay it twice.
           </p>
         </div>
 
@@ -124,6 +138,19 @@ export function ReminderSyncDialog({
               {sourceOptions.map((a) => (
                 <option key={a.id} value={a.id}>{a.title}</option>
               ))}
+            </select>
+          </label>
+          <label className="reminder-sync-field">
+            <span>Amount for</span>
+            <select
+              value={defaults.amountBasis}
+              onChange={(e) =>
+                onDefaultsChange({ ...defaults, amountBasis: e.target.value as MonthBasis })
+              }
+              disabled={busy}
+            >
+              <option value="current">This month</option>
+              <option value="next">Next month on</option>
             </select>
           </label>
           <label className="reminder-sync-field">

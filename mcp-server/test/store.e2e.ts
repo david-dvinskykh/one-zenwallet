@@ -338,13 +338,55 @@ assert.equal(
 );
 assert.deepEqual(
   planGoalContribution(overdrawn, { type: 'one_time', amount: 0, date: '2026-12-01' }, PERIOD),
-  { amount: 25, recurrence: 'monthly', endDate: '2026-12-01' },
+  { amount: 25, recurrence: 'monthly', endDate: '2026-12-01', basis: 'current' },
   'a zero target with a date spreads just the shortfall over the months left'
 );
 assert.deepEqual(
   planGoalContribution(overdrawn, { type: 'one_time', amount: 380, date: '2026-12-01' }, PERIOD),
-  { amount: 101, recurrence: 'monthly', endDate: '2026-12-01' },
+  { amount: 101, recurrence: 'monthly', endDate: '2026-12-01', basis: 'current' },
   'and a real target spreads the target plus the shortfall'
+);
+
+// --- which month the amount is sized for ------------------------------------
+const DATED = { type: 'one_time' as const, amount: 380, date: '2026-12-01' };
+assert.deepEqual(
+  planGoalContribution(overdrawn, DATED, PERIOD, { basis: 'next' }),
+  { amount: 126, recurrence: 'monthly', endDate: '2026-12-01', basis: 'next' },
+  'asked for next month, the transfer carries what each month after this one needs'
+);
+
+// This month's share is already in, so the standing order takes next month's
+// figure whichever month the caller asked for — funding this month again would
+// pay it twice.
+const paidThisMonth = {
+  categoryId: 'tag-z',
+  categoryTitle: 'Z',
+  amount: 400,
+  transactions: [
+    { id: 'tx-z', date: '2026-08-10', amount: 100, type: 'income' as const, comment: null },
+  ],
+};
+const paidTarget = { type: 'one_time' as const, amount: 500, date: '2026-12-01' };
+assert.deepEqual(
+  planGoalContribution(paidThisMonth, paidTarget, PERIOD),
+  { amount: 25, recurrence: 'monthly', endDate: '2026-12-01', basis: 'next' },
+  'a goal already funded this month is sized for next month even when current was asked for'
+);
+assert.deepEqual(
+  planGoalContribution(
+    { ...paidThisMonth, amount: 300, transactions: [] },
+    paidTarget,
+    PERIOD
+  ),
+  { amount: 40, recurrence: 'monthly', endDate: '2026-12-01', basis: 'current' },
+  'while one that has had nothing this month is sized for this month'
+);
+assert.deepEqual(
+  planGoalContribution(overdrawn, { type: 'one_time', amount: 380, date: '2026-08-31' }, PERIOD, {
+    basis: 'next',
+  }),
+  { amount: 501, recurrence: 'monthly', endDate: '2026-08-31', basis: 'current' },
+  'and next month falls back to this one when the target leaves no month after it'
 );
 assert.deepEqual(
   planGoalContribution(overdrawn, { type: 'one_time', amount: 100, date: '2020-01-01' }, PERIOD),

@@ -1,3 +1,5 @@
+import type { MonthBasis } from './goalMath';
+
 const STORAGE_KEY_TOKEN = 'zen_token';
 const STORAGE_KEY_WALLET = 'zen_selected_wallet';
 const STORAGE_KEY_TIMESTAMP = 'zen_server_timestamp';
@@ -165,20 +167,31 @@ export interface ReminderDefaults {
   /** Account a goal's funding transfer comes from, when none is chosen per goal. */
   sourceAccountId: string;
   dayOfMonth: number;
+  /** Month the bulk sync sizes each transfer for. */
+  amountBasis: MonthBasis;
 }
+
+const REMINDER_DEFAULTS: ReminderDefaults = {
+  sourceAccountId: '',
+  dayOfMonth: 1,
+  amountBasis: 'current',
+};
 
 export function getReminderDefaults(): ReminderDefaults {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_REMINDER_DEFAULTS);
-    if (!raw) return { sourceAccountId: '', dayOfMonth: 1 };
+    if (!raw) return { ...REMINDER_DEFAULTS };
     const parsed = JSON.parse(raw) as Partial<ReminderDefaults>;
     const day = Number(parsed?.dayOfMonth);
     return {
       sourceAccountId: typeof parsed?.sourceAccountId === 'string' ? parsed.sourceAccountId : '',
       dayOfMonth: Number.isInteger(day) && day >= 1 && day <= 31 ? day : 1,
+      // Settings written before this field existed read back as 'current',
+      // which is what they behaved as.
+      amountBasis: parsed?.amountBasis === 'next' ? 'next' : 'current',
     };
   } catch {
-    return { sourceAccountId: '', dayOfMonth: 1 };
+    return { ...REMINDER_DEFAULTS };
   }
 }
 

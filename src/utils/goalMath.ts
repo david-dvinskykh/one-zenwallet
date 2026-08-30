@@ -95,7 +95,19 @@ export interface GoalContributionPlan {
   recurrence: 'monthly' | 'once';
   /** Date the transfers should stop, when the target names one. */
   endDate?: string;
+  /**
+   * Which month the amount was taken from — 'next' when this month's share is
+   * already in, or when the caller asked for it. Only set for a dated target,
+   * where the two figures differ.
+   */
+  basis?: MonthBasis;
 }
+
+/**
+ * Which month a contribution is sized for. 'current' is what this month still
+ * needs; 'next' is what each following month needs once this one is funded.
+ */
+export type MonthBasis = 'current' | 'next';
 
 /**
  * What a goal's funding transfer should carry, or null when there is nothing to
@@ -110,7 +122,16 @@ export interface GoalContributionPlan {
 export function planGoalContribution(
   goal: Goal,
   target: GoalTarget | null,
-  periodStart: string
+  periodStart: string,
+  options: {
+    /**
+     * Month to size the transfer for; defaults to 'current'. A goal whose share
+     * for the current month is already in takes next month's figure either way:
+     * this month is paid, so that is the figure the standing order carries from
+     * here on.
+     */
+    basis?: MonthBasis;
+  } = {}
 ): GoalContributionPlan | null {
   const shortfall = goal.amount < 0 ? Math.ceil(-goal.amount) : 0;
   const coverShortfall = (): GoalContributionPlan | null =>
@@ -129,13 +150,30 @@ export function planGoalContribution(
   // A dated target: spread what is still missing over the months left. The
   // shortfall is already folded in — `remaining` is target minus a balance that
   // may itself be negative.
-  const { monthlyNeeded, nextMonthNeeded } = computeGoalProgress(goal, target, periodStart);
-  // This month's figure drops to 0 once the month is funded; the transfer
-  // should then carry what each following month needs.
-  const needed = monthlyNeeded !== null && monthlyNeeded > 0 ? monthlyNeeded : nextMonthNeeded;
-  if (needed === null || needed <= 0) return coverShortfall();
+  const { monthlyNeeded, nextMonthNeeded, monthlyStatus } = computeGoalProgress(
+    goal,
+    target,
+    periodStart
+  );
+  // This month's share is already in, so a transfer sized for it would fund the
+  // month twice; what the standing order needs to carry from here on is each
+  // following month's figure. That holds whichever month the caller asked for.
+  const monthFunded = monthlyStatus === 'met';
+  // The month to size for first, the other as the fallback — the target may
+  // leave no month after this one, and a plan with no amount funds nothing.
+  const fromCurrent = { needed: monthlyNeeded, basis: 'current' as const };
+  const fromNext = { needed: nextMonthNeeded, basis: 'next' as const };
+  const [first, second] =
+    options.basis === 'next' || monthFunded ? [fromNext, fromCurrent] : [fromCurrent, fromNext];
+  const chosen = first.needed !== null && first.needed > 0 ? first : second;
+  if (chosen.needed === null || chosen.needed <= 0) return coverShortfall();
 
-  return { amount: Math.ceil(needed), recurrence: 'monthly', endDate: target.date };
+  return {
+    amount: Math.ceil(chosen.needed),
+    recurrence: 'monthly',
+    endDate: target.date,
+    basis: chosen.basis,
+  };
 }
 
 export interface GoalProgress {

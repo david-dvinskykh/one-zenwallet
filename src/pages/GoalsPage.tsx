@@ -187,7 +187,8 @@ export function GoalsPage() {
       const plan = planGoalContribution(
           goal,
           goalTargets[goal.categoryId] ?? null,
-          currentPeriodStart
+          currentPeriodStart,
+          { basis: reminderDefaults.amountBasis }
       );
       if (plan === null) {
         return {
@@ -233,6 +234,7 @@ export function GoalsPage() {
         amount: plan.amount,
         recurrence: plan.recurrence,
         endDate: dates.endDate ?? undefined,
+        basis: plan.basis,
         current,
       };
     });
